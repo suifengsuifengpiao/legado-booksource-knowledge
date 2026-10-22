@@ -13,6 +13,7 @@
 3. JS 与 java.* API：写 `<js>` 的权威依据（java.ajax/createSign/connect/get/encodeJS…）
 4. 书源调试说明：调试页输入格式（搜索=关键词、发现=名称::URL、目录=++URL、正文=--URL）
 5. 书源管理与批量校验：校验判定口径（何为"校验成功"/失效识别范围）
+6. （同仓库另附）`解析要点-核心引擎行为与实战坑点.md`：AnalyzeUrl/AnalyzeRule 行为实证、7 大语法陷阱、亿软小说实战案例
 
 
 ---
