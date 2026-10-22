@@ -1,0 +1,56 @@
+[
+  {
+    "bookSourceComment": "v优++ | 纯文字版（已移除全部 [img:...] 含作者插图）；发现页仅男频+同人（无女频）；封面用 img.suggestCover@src 并去 ? 参数。导入后本注释含『优++』即为此版。",
+    "bookSourceGroup": "小说 书源",
+    "bookSourceName": "话本小说（优++）",
+    "bookSourceType": 0,
+    "bookSourceUrl": "https://www.ihuaben.com/",
+    "customOrder": 56,
+    "enabled": true,
+    "enabledCookieJar": false,
+    "enabledExplore": true,
+    "exploreUrl": "[{\"title\": \"全部\", \"url\": \"https://www.ihuaben.com/boy/clickcount_days_7/{{page}}.html\", \"style\": {\"layout_flexGrow\": 1, \"layout_flexBasisPercent\": 0.25}}, {\"title\": \"轻小说\", \"url\": \"https://www.ihuaben.com/qingxiaoshuo/clickcount_days_7/{{page}}.html\", \"style\": {\"layout_flexGrow\": 1, \"layout_flexBasisPercent\": 0.25}}, {\"title\": \"二次元\", \"url\": \"https://www.ihuaben.com/erciyuan/clickcount_days_7/{{page}}.html\", \"style\": {\"layout_flexGrow\": 1, \"layout_flexBasisPercent\": 0.25}}, {\"title\": \"灵异悬疑\", \"url\": \"https://www.ihuaben.com/lingyixuanyi/clickcount_days_7/{{page}}.html\", \"style\": {\"layout_flexGrow\": 1, \"layout_flexBasisPercent\": 0.25}}, {\"title\": \"历史\", \"url\": \"https://www.ihuaben.com/lishi/clickcount_days_7/{{page}}.html\", \"style\": {\"layout_flexGrow\": 1, \"layout_flexBasisPercent\": 0.25}}, {\"title\": \"都市\", \"url\": \"https://www.ihuaben.com/dushi/clickcount_days_7/{{page}}.html\", \"style\": {\"layout_flexGrow\": 1, \"layout_flexBasisPercent\": 0.25}}, {\"title\": \"军事战争\", \"url\": \"https://www.ihuaben.com/junshizhanzheng/clickcount_days_7/{{page}}.html\", \"style\": {\"layout_flexGrow\": 1, \"layout_flexBasisPercent\": 0.25}}, {\"title\": \"玄幻奇幻\", \"url\": \"https://www.ihuaben.com/xuanhuanqihuan/clickcount_days_7/{{page}}.html\", \"style\": {\"layout_flexGrow\": 1, \"layout_flexBasisPercent\": 0.25}}, {\"title\": \"历史军事\", \"url\": \"https://www.ihuaben.com/lishijunshi/clickcount_days_7/{{page}}.html\", \"style\": {\"layout_flexGrow\": 1, \"layout_flexBasisPercent\": 0.25}}, {\"title\": \"武侠仙侠\", \"url\": \"https://www.ihuaben.com/wuxiaxianxia/clickcount_days_7/{{page}}.html\", \"style\": {\"layout_flexGrow\": 1, \"layout_flexBasisPercent\": 0.25}}, {\"title\": \"游戏体育\", \"url\": \"https://www.ihuaben.com/youxitiyu/clickcount_days_7/{{page}}.html\", \"style\": {\"layout_flexGrow\": 1, \"layout_flexBasisPercent\": 0.25}}, {\"title\": \"科幻末世\", \"url\": \"https://www.ihuaben.com/kehuanmoshi/clickcount_days_7/{{page}}.html\", \"style\": {\"layout_flexGrow\": 1, \"layout_flexBasisPercent\": 0.25}}, {\"title\": \"男频同人\", \"url\": \"https://www.ihuaben.com/nanpintongren/clickcount_days_7/{{page}}.html\", \"style\": {\"layout_flexGrow\": 1, \"layout_flexBasisPercent\": 0.25}}, {\"title\": \"新媒体\", \"url\": \"https://www.ihuaben.com/xinmeiti/clickcount_days_7/{{page}}.html\", \"style\": {\"layout_flexGrow\": 1, \"layout_flexBasisPercent\": 0.25}}, {\"title\": \"脑洞\", \"url\": \"https://www.ihuaben.com/naodong/clickcount_days_7/{{page}}.html\", \"style\": {\"layout_flexGrow\": 1, \"layout_flexBasisPercent\": 0.25}}, {\"title\": \"非小说\", \"url\": \"https://www.ihuaben.com/feixiaoshuo/clickcount_days_7/{{page}}.html\", \"style\": {\"layout_flexGrow\": 1, \"layout_flexBasisPercent\": 0.25}}, {\"title\": \"同人·全部\", \"url\": \"https://www.ihuaben.com/tongren/clickcount_days_7/{{page}}.html\", \"style\": {\"layout_flexGrow\": 1, \"layout_flexBasisPercent\": 0.25}}, {\"title\": \"同人·明星同人\", \"url\": \"https://www.ihuaben.com/mingxingtongren/clickcount_days_7/{{page}}.html\", \"style\": {\"layout_flexGrow\": 1, \"layout_flexBasisPercent\": 0.25}}, {\"title\": \"同人·动漫同人\", \"url\": \"https://www.ihuaben.com/dongmantongren/clickcount_days_7/{{page}}.html\", \"style\": {\"layout_flexGrow\": 1, \"layout_flexBasisPercent\": 0.25}}, {\"title\": \"同人·游戏同人\", \"url\": \"https://www.ihuaben.com/youxitongren/clickcount_days_7/{{page}}.html\", \"style\": {\"layout_flexGrow\": 1, \"layout_flexBasisPercent\": 0.25}}, {\"title\": \"同人·影视同人\", \"url\": \"https://www.ihuaben.com/yingshitongren/clickcount_days_7/{{page}}.html\", \"style\": {\"layout_flexGrow\": 1, \"layout_flexBasisPercent\": 0.25}}, {\"title\": \"同人·小说同人\", \"url\": \"https://www.ihuaben.com/xiaoshuotongren/clickcount_days_7/{{page}}.html\", \"style\": {\"layout_flexGrow\": 1, \"layout_flexBasisPercent\": 0.25}}]",
+    "header": "{\"plantype\":\"ANDROID\",\"version\":\"6.2.63\",\"packageid\":\"ihuaben\",\"content-type\":\"application/x-www-form-urlencoded\"}",
+    "lastUpdateTime": 1791625384788,
+    "respondTime": 3187,
+    "ruleBookInfo": {
+      "author": ".simpleinfo@ul.0@li.1@a@text",
+      "coverUrl": ".biginfo@.cover@img.0@src",
+      "intro": ".text-muted@text",
+      "kind": ".simpleinfo@ul.3@li@text",
+      "lastChapter": ".chapterTitle.0@a@text",
+      "name": ".simpleinfo@h1@text",
+      "wordCount": ".simpleinfo@ul.1@li.1@text&&.simpleinfo@span.0@text"
+    },
+    "ruleContent": {
+      "content": "$..content<js>t=String(result);t=t.replace(/^#(作者大大|作者菌|作者大人|作者有话说|作者的话|作者说|小剧场)[^\\n]*\\n?/gm,'');t=t.replace(/^[^#\\n][^\\n]*(?:请勿上升|上升正主|勿上升真人)[^\\n]*\\n?/gm,'');t=t.replace(/^\\s*\\[img:[^\\]]*\\]\\s*\\n?/gm,'');t=t.replace(/\\[img:[^\\]]*\\]/g,'');if(/\\[img:/.test(t)){t=t.replace(/\\[img:[^\\]]*\\]/g,'')}t=t.replace(/\\n{3,}/g,'\\n\\n');t.trim()||'（本章只有作者的话，已被过滤）'</js>",
+      "nextContentUrl": ""
+    },
+    "ruleExplore": {
+      "bookList": "ul.booklist@li",
+      "name": "h3@a@text",
+      "author": ".hsuggestsLeft@p.0@a@text",
+      "coverUrl": "img.suggestCover@src##\\?.*##",
+      "intro": ".hsuggestsLeft@p.2@a@text",
+      "kind": ".hsuggestsLeft@p.2@a@text",
+      "lastChapter": ".text-lightgrey@span.0@text",
+      "bookUrl": "a@href##(//www\\.ihuaben\\.com/book/(\\d+)\\.html)##https://cdncn.ihuaben.com/cdn/chapters/$2/{{Date.parse(new Date())}}"
+    },
+    "ruleSearch": {
+      "author": "p.text-muted@span@a@text",
+      "bookList": ".searchresult",
+      "bookUrl": "h2@a@href##//www\\.ihuaben\\.com/book/(\\d+)\\.html##https://cdncn.ihuaben.com/cdn/chapters/$1/{{Date.parse(new Date())}}",
+      "intro": ".searchresult-info@p@a@text",
+      "kind": ".searchresult-info@li>a.text-warning@text",
+      "name": "h2@a@text"
+    },
+    "ruleToc": {
+      "chapterList": "$..chapters[*]",
+      "chapterName": "$.title",
+      "chapterUrl": "https://cdncn.ihuaben.com/cdn/chapter/{{$.bookId}}/{{$.chapterId}}/{{Date.parse(new Date())}}",
+      "updateTime": "<js>{{$.wordCount}}+\"字 \"+java.timeFormat({{$.publishTime}})</js>"
+    },
+    "searchUrl": "https://so.ihuaben.com/search?keyword={{key}}&page={{page}},{\"charset\":\"utf-8\"}",
+    "weight": 0
+  }
+]

@@ -1,0 +1,41 @@
+[
+  {
+    "bookSourceName": "篱笆好文学",
+    "bookSourceGroup": "小说",
+    "bookSourceType": 0,
+    "bookSourceUrl": "https://m.libahao2.com",
+    "bookUrlPattern": "https://m.libahao2.com/book/.*",
+    "enabled": true,
+    "enabledCookieJar": true,
+    "enabledExplore": false,
+    "concurrentRate": "1/1000",
+    "header": "{\"User-Agent\":\"Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36\",\"Referer\":\"https://m.libahao2.com/\"}",
+    "searchUrl": "https://m.libahao2.com/sou?wd={{key}},{\"charset\":\"utf-8\"}",
+    "ruleSearch": {
+      "bookList": "a.m-book-row",
+      "name": "h3.m-book-title@text",
+      "author": "p.m-book-meta@text##·.*##",
+      "coverUrl": "img.m-cover@src",
+      "bookUrl": "a.m-book-row@href",
+      "intro": "p.m-book-description@text"
+    },
+    "ruleBookInfo": {
+      "name": "h1#book-title@text",
+      "author": "p.mb-author@text##\\s*著.*##",
+      "coverUrl": "img.mb-cover@src",
+      "intro": "section.mb-introduction@text",
+      "kind": "",
+      "tocUrl": ""
+    },
+    "ruleToc": {
+      "chapterList": "div.mb-catalog-scroll a",
+      "chapterName": "a@text",
+      "chapterUrl": "a@href"
+    },
+    "ruleContent": {
+      "content": "id=\"chapterText\"@text##本章未完，下一页继续阅读##",
+      "nextContentUrl": "a.mr-next@href"
+    },
+    "bookSourceComment": "v1.2 | 2026-10-11 新建→v1.1 加限速→v1.2 实测『能否下载缓存』结论。站点 m.libahao2.com（篱笆好文学），本书 /book/5219101_648571/，目录 330 条（含1条上架公告，实际第1~329章）。【支持缓存的规则面】单章抓取正常；多页正文链验证通过：1.html→1_1.html→1_2.html…，靠 nextContentUrl=a.mr-next@href 自动拼到末页（末页不再有 a.mr-next）；content 净化规则已去掉『本章未完，下一页继续阅读』提示。【致命短板=限流】实测：搜索/详情/章节连续请求哪怕隔 2 秒都返回 503（空页 596B），必须隔 ~8 秒才稳；前置防护还会掐断 HTTP/2 连接（手机端表现为 net::ERR_HTTP2_PROTOCOL_ERROR）。【结论】逐章阅读、按需单章缓存没问题；但『一键缓存全本/批量下载』会因请求过快撞 503，几乎必然留下空洞章节。v1.1 的 concurrentRate=1/1000（1秒1次）仍偏快，要稳定批量下载需改到 1/8000（1次/8秒，极慢）。无反爬/加密/验证码，curl 直连可用。搜索用 wd 参数（非 keyword）。本书更新至329章（正版起点337章，差末几章）。导入后本注释含『v1.2』即为此版。"
+  }
+]

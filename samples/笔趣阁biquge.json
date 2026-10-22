@@ -1,0 +1,40 @@
+[
+  {
+    "bookSourceName": "笔趣阁·biquge",
+    "bookSourceGroup": "小说",
+    "bookSourceType": 0,
+    "bookSourceUrl": "https://biquge.com.co",
+    "bookUrlPattern": "https://biquge.com.co/book/.*",
+    "enabled": true,
+    "enabledCookieJar": true,
+    "enabledExplore": false,
+    "header": "{\"User-Agent\":\"Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36\",\"Referer\":\"https://biquge.com.co/\"}",
+    "searchUrl": "",
+    "ruleSearch": {
+      "bookList": "",
+      "name": "",
+      "author": "",
+      "coverUrl": "",
+      "bookUrl": "",
+      "intro": ""
+    },
+    "ruleBookInfo": {
+      "name": "h1@text",
+      "author": "a[href*=\"/author/\"]@text",
+      "coverUrl": ".novel_info_main img@src",
+      "intro": ".intro@text",
+      "kind": "",
+      "tocUrl": ""
+    },
+    "ruleToc": {
+      "chapterList": "ul#ul_all_chapters li",
+      "chapterName": "a@text",
+      "chapterUrl": "a@href"
+    },
+    "ruleContent": {
+      "content": ".content@text##第\\d+章[^\\n]*\\n?",
+      "nextContentUrl": ""
+    },
+    "bookSourceComment": "v1.0 | 2026-10-11 新建。站点 biquge.com.co（笔趣阁）。注意：本站【没有搜索功能】（首页无搜索框，/search 后端返回 0 结果），所以书源 searchUrl 留空——在「阅读」里请『添加书籍→粘贴网址』导入：https://biquge.com.co/book/427361 ；书到架上后本书即可正常读，无需搜索。目录在全量容器 ul#ul_all_chapters（实测 143 章，第1→第143章，完整内嵌无需翻页）。正文在 .content，首行是章节标题，已用 ##第\\d+章[^\\n]*\\n? 剥离；单章无分页（标题标记 (1/1)）。相对优点：服务端渲染、HTTP/2 连发 10 次详情页全 200、不触发限流，比 libahao2 稳定。缺点：仅 143 章（正版起点 337 章，差后半段）；无搜索。建议：libahao2（329 章）作主力，本源作稳定备胎/前半段阅读。导入后注释含『v1.0』即为此版。"
+  }
+]

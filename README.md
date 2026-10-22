@@ -22,6 +22,17 @@
 - `replaceRuleHelp.md` / `dictRuleHelp.md` / `httpTTSHelp.md` / `readMenuHelp.md`
 - `webDavHelp.md` / `webDavBookHelp.md` / `ExtensionContentType.md` / `appHelp.md`
 
+## 新增目录（2026-10-22）
+
+| 路径 | 内容 |
+|---|---|
+| `tools/` | 书源工具链 v1.13.30：validate_booksource / test_parse / realcheck / bypass_cf / js_layer_check / reverse_crypto / reverse_font / webview_probe / l0_probe / make_probe_source / check_environment / JsoupRuleEval.java 等 16 个（含清单 README） |
+| `cases/` | 实战层：多站案例集（兔九三/74xswz/3qdus/菠萝猫/速读谷/黄金屋 6 站修复记录）+ 黄金屋站点档案 |
+| `references-extra/` | API 文档层：Legado_3.25 书源编写参考、方法补集、pitfalls、site-patterns、legend-js-api、parse-paths、booksource-schema、apk-3.25-verified-facts |
+| `samples/` | 真机验证过的书源样本 5 份（黄金屋/无限小说网/话本小说/笔趣阁biquge/篱笆好文学） |
+
+阅读顺序建议：`LEGADO-书源调试知识库.md`（索引）→ `解析要点-核心引擎行为与实战坑点.md`（引擎行为）→ `cases/Legado_书源排错与实战经验_多站案例集.md`（排错实战）→ `tools/README.md`（要动手时）。
+
 ## 来源与版权
 
 - 官方帮助文档: Legado(gedoor/legado) APK 3.25 内置 assets, 版权归原项目及作者

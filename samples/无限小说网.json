@@ -1,0 +1,47 @@
+[
+  {
+    "bookSourceName": "无限小说网",
+    "bookSourceUrl": "http://www.book55.cc/",
+    "bookSourceType": 0,
+    "enabled": true,
+    "enabledExplore": true,
+    "enabledCookieJar": false,
+    "bookSourceComment": "v1.4b | 2026-10-11 生效版（用户真机验证通过）。\n【问题根因】book55.cc 每次成功搜索都会在响应里 Set-Cookie: ss_search_delay=1; Max-Age=30（搜索间隔30秒冷却标记）。部分阅读构建不按 Max-Age 让该 cookie 过期，于是它长期滞留 cookie 库，之后每次搜索都被打回『搜索间隔: 30秒』冷却页——表现成『等30秒也没用、必须清 cookie』。站点仅靠这个 cookie 在不在来放行，删掉即可立刻再搜。\n【本版做法（双保险）】\n1) enabledCookieJar=false：关掉自动落库，ss_search_delay 再也进不了 cookie 库；会话 token 改由 loginCheckJs 手动写（见下），不受此开关影响。\n2) loginCheckJs 保留 v1.4 的『403壳页重取+手动写token』逻辑（解决首访冷请求），并在末尾追加一段：每次响应后把 cookie 串里 ss_search_delay 一条剔掉再写回，其余 cookie（含 token）原样保留——这是技能库『六种污染形态 6/6 通过』的清法，作为双保险。\n3) searchUrl 用纯 URL（GET /search/?searchkey={{key}}），不依赖 searchUrl 内 JS（已证实该阅读器不执行 searchUrl 里的 JS）。\n【验证】连续搜两次无需手清 cookie；正文 XPath //div[@id='rtext']//p，下一页 #linkNext@href。本注释含『v1.4b』即此版。",
+    "header": "{\"User-Agent\": \"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36\"}",
+    "searchUrl": "http://www.book55.cc/search/?searchkey={{key}}",
+    "loginCheckJs": "var b = result.body();\nvar n = 0;\nwhile (b && (b.indexOf('location.href =') > -1 || b.indexOf('location.href=') > -1) && n < 4) {\n  try {\n    var rh = result.raw();\n    if (rh) {\n      var sc = rh.header('Set-Cookie');\n      if (sc && sc.indexOf('=') > -1) {\n        cookie.setCookie(baseUrl, sc.substring(0, sc.indexOf(';')));\n      }\n    }\n  } catch (e) {}\n  result = java.connect(result.url());\n  b = result.body();\n  n = n + 1;\n}\ntry {\n  var c = String(cookie.getCookie(baseUrl) || '');\n  if (c.indexOf('ss_search_delay=') >= 0) {\n    var ps = c.split(';');\n    var kp = [];\n    for (var i = 0; i < ps.length; i++) {\n      var p = ps[i].replace(/^\\s+|\\s+$/g, '');\n      if (p.length > 0 && p.indexOf('ss_search_delay=') !== 0) kp.push(p);\n    }\n    cookie.setCookie(baseUrl, kp.join('; '));\n  }\n} catch (e) {}\nresult;",
+    "ruleSearch": {
+      "bookList": "div.bookbox",
+      "name": "h4.bookname a@text",
+      "author": "div.author@text##作者：##",
+      "bookUrl": "h4.bookname a@href",
+      "lastChapter": "div.cat a@text",
+      "coverUrl": "",
+      "intro": ""
+    },
+    "ruleExplore": {
+      "bookList": "div.bookbox",
+      "name": "h4.bookname a@text",
+      "author": "div.author@text##作者：##",
+      "bookUrl": "h4.bookname a@href",
+      "lastChapter": "div.cat a@text"
+    },
+    "ruleBookInfo": {
+      "name": "h1.booktitle@text",
+      "author": "p.booktag a.red@text",
+      "intro": "p.bookintro@text##《[^》]{1,60}》是[^。]{0,40}精心创作[\\s\\S]*##",
+      "coverUrl": "div.bookcover img@src",
+      "tocUrl": ""
+    },
+    "ruleToc": {
+      "chapterList": "div#list-chapterAll dd a",
+      "chapterName": "@text",
+      "chapterUrl": "@href"
+    },
+    "ruleContent": {
+      "content": "//div[@id='rtext']//p",
+      "nextContentUrl": "#linkNext@href"
+    },
+    "exploreUrl": "[{\"title\": \"全部\", \"url\": \"/class/{{page}}/\", \"style\": {\"layout_flexGrow\": 1, \"layout_flexBasisPercent\": 0.25}}, {\"title\": \"玄幻魔法\", \"url\": \"/class/xuanhuanmofa/{{page}}/\", \"style\": {\"layout_flexGrow\": 1, \"layout_flexBasisPercent\": 0.25}}, {\"title\": \"仙侠修真\", \"url\": \"/class/xianxiaxiuzhen/{{page}}/\", \"style\": {\"layout_flexGrow\": 1, \"layout_flexBasisPercent\": 0.25}}, {\"title\": \"都市言情\", \"url\": \"/class/dushiyanqing/{{page}}/\", \"style\": {\"layout_flexGrow\": 1, \"layout_flexBasisPercent\": 0.25}}, {\"title\": \"历史军事\", \"url\": \"/class/lishijunshi/{{page}}/\", \"style\": {\"layout_flexGrow\": 1, \"layout_flexBasisPercent\": 0.25}}, {\"title\": \"网游动漫\", \"url\": \"/class/wangyoudongman/{{page}}/\", \"style\": {\"layout_flexGrow\": 1, \"layout_flexBasisPercent\": 0.25}}, {\"title\": \"科幻小说\", \"url\": \"/class/kehuanxiaoshuo/{{page}}/\", \"style\": {\"layout_flexGrow\": 1, \"layout_flexBasisPercent\": 0.25}}, {\"title\": \"女生小说\", \"url\": \"/class/nvshengxiaoshuo/{{page}}/\", \"style\": {\"layout_flexGrow\": 1, \"layout_flexBasisPercent\": 0.25}}, {\"title\": \"其他小说\", \"url\": \"/class/qitaxiaoshuo/{{page}}/\", \"style\": {\"layout_flexGrow\": 1, \"layout_flexBasisPercent\": 0.25}}, {\"title\": \"全本\", \"url\": \"/quanben/class/{{page}}/\", \"style\": {\"layout_flexGrow\": 1, \"layout_flexBasisPercent\": 0.25}}]"
+  }
+]

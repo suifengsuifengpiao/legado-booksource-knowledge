@@ -1,0 +1,55 @@
+[
+  {
+    "bookSourceComment": "【v3.1 桩书提示】若某本书详情页显示「字数1字/章节目录共0章」，是站点侧空壳书(桩书)，目录为空与书源无关、无需改源；换本正常书(如排行榜里的《赤心巡天》/novel/182)即可。\n修复(v3): ① ruleSearch.checkKeyWord=\"明克街\" 调试残留已删; ② /search 被 Cloudflare 五秒盾拦截 → searchUrl 改走 webView 过盾(webWait=12000); ③ 目录翻页: 站点书籍页目录按 ?page=N 分页(每页100章), 原 nextTocUrl=\".page-link:last-child@href\" 取到的是分页条最后一个链接(尾页)而非下一页, 导致跳页、只加载约298章就停 → 改为纯JS按页码确定性递增(下一页链接优先,否则 page+1; 末页返回空串自然停止,防回环)。 ④ webWait 对齐 12000（原 5000 偏短，CF 盾易取空→搜索偶发0条）。【v3.1 注】目录『列表为空』初步排查：实测 /novel/73106 站点侧返回『章节目录共0章』(字数1/人气0)，疑似桩书；本版未动 chapterList/nextTocUrl，待热门书验证是否源-wide 再定。",
+    "bookSourceGroup": "✦优",
+    "bookSourceName": "🄼黄金屋",
+    "bookSourceType": 0,
+    "bookSourceUrl": "https://www.huangjinwu.org/",
+    "customOrder": 0,
+    "enabled": true,
+    "enabledCookieJar": true,
+    "enabledExplore": true,
+    "exploreUrl": "@js:s=[];push=(a,b,d)=>s.push({title:a,url:b,style:{layout_flexBasisPercent:1/d-.05,layout_flexGrow:1}});push(\"排行榜\",null,1);[[\"总点击\",\"allvisit\"],[\"月点击\",\"monthvisit\"],[\"周点击\",\"weekvisit\"],[\"总推荐\",\"allvote\"],[\"月推荐\",\"monthvote\"],[\"周推荐\",\"weekvote\"],[\"收藏榜\",\"goodnum\"],[\"字数榜\",\"size\"],[\"新书榜\",\"postdate\"]].map(([s,r])=>push(s,`/rank/${r}/{{page}}.html`,3));push(\"分类\",null,1);[\"玄幻小说\",\"仙侠小说\",\"都市小说\",\"历史小说\",\"网游小说\",\"科幻小说\",\"灵异小说\",\"言情小说\",\"其他小说\"].map((s,i)=>push(s,`/list/${i+1}/{{page}}.html`,3));push(\"标签\",null,1);[[\"生活\",\"16\"],[\"废土\",\"13162\"],[\"空间\",\"83\"],[\"修仙\",\"37\"],[\"高武\",\"82\"],[\"科幻\",\"39\"],[\"重生\",\"46\"],[\"娱乐\",\"41\"],[\"东方\",\"2\"],[\"诸天\",\"17\"],[\"言情\",\"56\"],[\"穿越\",\"4\"],[\"玄幻\",\"1\"],[\"系统流\",\"112\"],[\"末世\",\"49\"],[\"都市\",\"7\"],[\"异界\",\"15\"],[\"世界\",\"76\"],[\"仙侠\",\"23\"],[\"游戏\",\"14\"]].map(([s,r])=>push(s,`/tag/${r}/{{page}}.html`,4));JSON.stringify(s);",
+    "header": "{\"User-Agent\": \"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36\", \"Referer\": \"https://www.huangjinwu.org/\"}",
+    "lastUpdateTime": 1791347154321,
+    "respondTime": 180000,
+    "ruleBookInfo": {
+      "author": "[property=\"og:novel:author\"]@content",
+      "coverUrl": "[property=\"og:image\"]@content",
+      "intro": "[property=\"og:description\"]@content",
+      "kind": "[property=\"og:novel:category\"]@content\n[property=\"og:novel:status\"]@content\n[property=\"og:novel:tags\"]@content",
+      "lastChapter": "[property=\"og:novel:latest_chapter_name\"]@content",
+      "name": "[property=\"og:novel:book_name\"]@content"
+    },
+    "ruleContent": {
+      "content": "#readerContent@text",
+      "nextContentUrl": "a:matches(下一页)@href"
+    },
+    "ruleExplore": {
+      "author": ".book-author@text##^[\\w ]{2}：",
+      "bookList": ".book-card",
+      "bookUrl": "a@href",
+      "coverUrl": "img@src",
+      "intro": ".book-desc@text",
+      "kind": ".book-badge@text",
+      "name": ".book-title@text"
+    },
+    "ruleSearch": {
+      "author": ".book-author@text##^[\\w ]{2}：",
+      "bookList": ".book-card",
+      "bookUrl": "a@href",
+      "coverUrl": "img@src",
+      "intro": ".book-desc@text",
+      "kind": ".book-badge@text",
+      "name": ".book-title@text"
+    },
+    "ruleToc": {
+      "chapterList": "#chapterList a",
+      "chapterName": "text",
+      "chapterUrl": "href",
+      "nextTocUrl": "@js:(function(){var h=''+result,u=''+baseUrl,out='';\nvar mm=h.match(/<a\\b[^>]*href\\s*=\\s*[\"']([^\"']+)[\"'][^>]*>(?:(?!<\\/a>)[\\s\\S]){0,80}?下一页/);\nif(mm&&mm[1]){out=mm[1];}\nelse{var cur=1,max=0,has=false,pm=u.match(/[?&]page=(\\d+)/);\nif(pm){cur=parseInt(pm[1],10)||1;has=true;}\nvar nr=/[?&]page=(\\d+)/g,v;\nwhile((v=nr.exec(h))){var n=parseInt(v[1],10);if(n>max){max=n;}}\nvar nx=cur+1;\nif(max>=nx){out=has?u.replace(/([?&]page=)\\d+/,'$1'+nx):(u+(u.indexOf('?')>-1?'&':'?')+'page='+nx);}}\nreturn out;})()"
+    },
+    "searchUrl": "/search?keyword={{key}},{\"charset\":\"utf-8\",\"webView\":true,\"webWait\":12000}",
+    "weight": 0
+  }
+]
