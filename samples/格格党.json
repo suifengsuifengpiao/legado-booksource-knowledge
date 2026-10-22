@@ -1,0 +1,57 @@
+[
+  {
+    "bookSourceName": "格格党",
+    "bookSourceGroup": "小说",
+    "bookSourceType": 0,
+    "bookSourceUrl": "https://www.geged.org/",
+    "bookUrlPattern": "https://www\\.geged\\.org/shu/\\d+/",
+    "enabled": true,
+    "enabledExplore": true,
+    "header": "{\"User-Agent\":\"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36\",\"Referer\":\"https://www.geged.org/\"}",
+    "bookSourceComment": "v1.0 2026-10-22 | geged.org(格格党) 纯静态PHP站, UTF-8, 无CF/验证码/JS挑战, curl直连全200。①搜索: POST /search/, body=searchkey={{key}}&searchtype=all(隐藏字段searchtype必带); ②目录: 全量在详情页 #ul_all_chapters li a, 无分页无需nextTocUrl(大书实测125/125); ③正文: /read/{书id}/{章id}.html, 章内分页后缀 _N(如154416_2.html), nextContentUrl由JS取#next_url——中间页指向同章次页、末页指向下一章、全书最后一页指向详情页(JS只认/read/链接否则返回空串停止, 防回环); ④正文容器 #article@html(仅含p标签, 实测纯净无广告, 故未加净化规则); ⑤封面: 搜索/发现页为lazy加载须取img@data-original(src是nocover占位图), 详情页封面直接img@src; ⑥分类页 /sort/{1-8}/{page}/ 越界不404而是钳制返回内容, 发现页翻到尾页后会重复末页内容, 属站点特性; ⑦搜索/发现列表结构不同: 搜索用li.searchresult, 发现用ul.flex li(h2在a内, bookUrl取.img_span a)",
+    "searchUrl": "https://www.geged.org/search/,{\"charset\":\"utf-8\",\"method\":\"POST\",\"body\":\"searchkey={{key}}&searchtype=all\"}",
+    "exploreUrl": "[{\"title\":\"玄幻\",\"url\":\"https://www.geged.org/sort/1/{{page}}/\"},{\"title\":\"武侠\",\"url\":\"https://www.geged.org/sort/2/{{page}}/\"},{\"title\":\"都市\",\"url\":\"https://www.geged.org/sort/3/{{page}}/\"},{\"title\":\"历史\",\"url\":\"https://www.geged.org/sort/4/{{page}}/\"},{\"title\":\"科幻\",\"url\":\"https://www.geged.org/sort/5/{{page}}/\"},{\"title\":\"游戏\",\"url\":\"https://www.geged.org/sort/6/{{page}}/\"},{\"title\":\"女生\",\"url\":\"https://www.geged.org/sort/7/{{page}}/\"},{\"title\":\"其他\",\"url\":\"https://www.geged.org/sort/8/{{page}}/\"}]",
+    "ruleSearch": {
+      "bookList": "li.searchresult",
+      "name": "h3@text",
+      "author": "tag.p!0@text##^\\s*|\\s*[0-9][\\s\\S]*##",
+      "bookUrl": "tag.a@href",
+      "coverUrl": ".img_span img@data-original",
+      "intro": "p.searchresult_p@text",
+      "kind": ".img_span span@text",
+      "lastChapter": "a[href*=\"/read/\"]@text"
+    },
+    "ruleExplore": {
+      "bookList": "ul.flex li",
+      "name": "h2@text",
+      "author": ".li_bottom a@text##^[^\\u4e00-\\u9fa5A-Za-z·]+##",
+      "bookUrl": ".img_span a@href",
+      "coverUrl": ".img_span img@data-original",
+      "intro": "p.indent@text",
+      "kind": ".img_span span@text"
+    },
+    "ruleBookInfo": {
+      "init": "",
+      "name": ".novel_info_title h1@text",
+      "author": ".novel_info_title i a@text",
+      "kind": ".novel_info_title p span!0@text",
+      "wordCount": ".novel_info_title p span!1@text",
+      "lastChapter": "div.flex.to100 a@text",
+      "updateTime": "div.flex.to100 em@text",
+      "coverUrl": ".novel_info_main img@src",
+      "intro": ".intro@text",
+      "tocUrl": ""
+    },
+    "ruleToc": {
+      "chapterList": "#ul_all_chapters li a",
+      "chapterName": "a@text",
+      "chapterUrl": "a@href",
+      "nextTocUrl": ""
+    },
+    "ruleContent": {
+      "content": "#article@html",
+      "nextContentUrl": "<js>(function(){var h=''+result;var m=h.match(/id=\"next_url\" href=\"([^\"]+)\"/);if(m&&m[1].indexOf('/read/')>-1)return m[1];return '';})()</js>",
+      "title": ""
+    }
+  }
+]
