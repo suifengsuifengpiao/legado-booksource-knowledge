@@ -143,6 +143,23 @@ result;
 
 ---
 
+## 4.6. 案例 F：book55（无限小说网）—— cookie 壳页型过墙与 loginCheckJs 误判链
+
+首访返回 `403 + location.href="/"` 壳页 + Set-Cookie，带 cookie 二访即过——**普通 HTTP + loginCheckJs 即可，不用 webView**。完整档案见《站点档案_book55无限小说网.md》，两个高价值教训：
+
+- **壳页判别必须匹配赋值形态** `location.href =`（带 `=`），不能用 `indexOf('location.href')`——章节页的阅读记录脚本含裸字面量，会把正常页误判成壳页反复重抓，表现为正文空；
+- **Cookie 双保险**：`enabledCookieJar=false` 断自动落库 + `loginCheckJs` 末端按名剔除 `ss_search_delay` 冷却 cookie；searchUrl 内 JS 在该阅读器不执行，纯 URL 才稳。
+
+## 4.7. 案例 G：纸间阅读（zjread.cc）—— IndexedDB 缓存目录 + altcha 可 webJs 点
+
+- **目录**：站点把目录存 IndexedDB 而非 DOM，靠 webJs 把缓存目录渲染进 DOM 再解析（"注水"模式）；
+- **正文**：altcha 人机验证（PoW 模式，`auto:"off"` 手动复选框）。关键结论：**altcha widget 与正文同源同页，webJs 可检测未 checked 的复选框自动 `.click()`**，等 `.prose` 渲染出段落再取 outerHTML——Playwright 按 Legado 后台时序复现，t=6s 返回 54 个 `<p>`；
+- **与 Turnstile 的本质区别**：altcha 验证组件与目标内容同源（PoW 算完本地提交拿 token），webJs 够得着；Turnstile 核心逻辑在 CF 跨域 iframe，同源策略禁止触碰。**同为"人机验证"，能否 webJs 点取决于是否同源。**
+
+## 4.8. 案例 H：xs5200（5200小说网）—— Turnstile 三层死结，认怂走 Bing 兜底
+
+搜索端点被 Cloudflare Turnstile 拦截，三层死结（形态/执行/凭证）详见《过盾专题_CF盾物种与Turnstile三层死结》。结论：**过不去就止损**——主搜索走 Bing 兜底（`site:xs5200.net + 关键词`），webWait 降到 ~10000 快速失败。完整档案见《站点档案_xs5200.md》。
+
 ## 5. 可复用片段（直接抄）
 
 **封面计算（按书籍 URL 算 `img.tu93.xyz` 风格，无封面返回空）**：

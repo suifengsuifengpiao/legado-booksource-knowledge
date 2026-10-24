@@ -485,3 +485,37 @@ Maven 中央仓拉不动时走阿里云镜像：`https://maven.aliyun.com/reposi
 
 > ⚠️ **jadx 反编译输出不可全信**（曾漏显 `body()` 方法导致误判 TypeError 根因）。
 > **定性 API 行为请以 `javap -c -p <class>` 字节码为准**，反编译只用来定位调用点。
+
+---
+
+## 🔴 新坑补遗（2026-10-24 档案蒸馏，20 天 17 站实战）
+
+### 坑 N1：桩书——「字数1字 / 章节目录共0章」与书源无关
+
+采集站存在站点侧空壳书（占位/被下架）：详情页显示「字数 1 字 / 共 0 章」，`ruleToc.chapterList` 再对也解析不出目录，报 `TocEmptyException`。
+
+**判别法**：搜索恒 0 条/目录为空时，先分清三种根因——CF 盾（响应是盾页）/ 桩书（站点返回字数1共0章，同通道抓热门书对比即可证实）/ checkKeyWord 残留。**桩书换关键词即可，不要改源。** 建议在书源注释里留「桩书提示」（黄金屋 v3.1 已示范）。
+
+### 坑 N2：壳页特征匹配必须取赋值形态
+
+`loginCheckJs` 用 `indexOf('location.href')` 判断反爬壳页过宽——章节页的阅读记录脚本 `read.set(..., window.location.href, ...)` 含裸字面量，正常页被误判成壳页反复重抓，正文空。正解：匹配**赋值**形态 `location.href =`（带 `=`），见《站点档案_book55无限小说网.md》。
+
+### 坑 N3：nextTocUrl 取「尾页链接」跳页丢章
+
+分页条最后一个链接是**尾页**而非下一页：原 `nextTocUrl: ".page-link:last-child@href"` 导致 998 章只加载约 298 章就停。正解：纯 JS 按页码确定性递增（有"下一页"链接优先取其 href，否则当前 `?page=N` +1；末页返空串自然停止，防回环）。
+
+### 坑 N4：searchUrl 内联 JS 在该阅读器不执行
+
+`searchUrl` 里写 `@js:`/`<js>` 不执行，**纯 URL（含行内选项 JSON）才稳**。过盾靠 `webView:true + webWait`，动态逻辑放 `loginCheckJs`（它能执行，但只能"盾后打扫"）。
+
+### 坑 N5：altcha 手动验证码可用 webJs 模拟点击（与 Turnstile 不同命）
+
+altcha（PoW，`auto:"off"`）widget 与正文同源：webJs 检测未 checked 的复选框 `.click()`，等正文容器渲染出段落再取 HTML，真机/Playwright 均复现成功。**但 Turnstile 不行**——核心逻辑在 CF 跨域 iframe，同源策略禁止触碰，见《过盾专题》。
+
+### 坑 N6：CF 五秒盾的 webWait 别配短
+
+5000ms 容易在盾放行前取空，导致搜索偶发 0 条；配 `12000`。注意**注释与实际配置要一致**（黄金屋 v3 曾注释写 12000、实际配 5000，自相矛盾）。
+
+### 坑 N7：www + 移动 UA 会被站点 JS 跳回 m 域
+
+xs5200 实证：站点按屏幕宽度/触摸能力检测强制跳 m 域，改 UA 无用；且移动版目录分页不全、桌面版书籍页内嵌全量目录——从移动版进书要还原桌面版 URL。

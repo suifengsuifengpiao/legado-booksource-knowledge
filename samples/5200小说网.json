@@ -1,0 +1,54 @@
+[
+  {
+    "bookSourceComment": "5200小说网（xs5200.net）站内搜索版【搜索通道已判不可用，保留仅供发现/详情/目录/正文；搜索请导入随附的「5200小说网-Bing兜底.json」】。①发现/详情/目录/正文：真机验证通过；②搜索=隐藏 WebView 直连站内 m 站 search.php：真机浏览器（鸿蒙 ArkWeb 内核）访问同一页面可免验证放行，但 Legado 隐藏 WebView 以浏览器身份+真实内核访问仍被 Cloudflare 质询（真机 toast 已提示，WebView 形态固有缺陷：; wv 标记、缺 window.chrome）；③Cookie 移植方案已排除：真机 vConsole + Cookie Editor 双重查证该站不签发 cf_clearance，验证态为站长自签 wsii.sig cookie（绑设备 TLS 指纹/IP，跨设备移植无效）；且真机切桌面 UA 访问 www 域会被站点 JS 强制跳回 m 域（屏幕宽度/触摸能力检测，改 UA 无用），取证入口已断；④移动版搜索页结构：ul.lis>li 内 span.s1=分类、span.s2>a=书名链接、span.s3=作者；bookUrl 经 ^/ 替换还原为桌面版书籍页（桌面版书籍页内嵌全量目录，移动版目录分页不全）；⑤注意：www + 移动 UA 会 302 跳 m 站，故全局 UA 保持桌面；⑥纯 JS（Rhino）无法过 Turnstile：验证脚本需真实浏览器环境，且核心逻辑在 challenges.cloudflare.com 跨域 iframe 内，书源 JS 触达不到。",
+    "bookSourceGroup": "小说",
+    "bookSourceName": "5200小说网",
+    "bookSourceType": 0,
+    "bookSourceUrl": "https://www.xs5200.net",
+    "concurrentRate": "20/60000",
+    "customOrder": 0,
+    "enabled": true,
+    "enabledCookieJar": true,
+    "enabledExplore": true,
+    "exploreUrl": "@js:var rows=[];\nfunction push(t,u,b){rows.push({title:t,url:u,style:{layout_flexBasisPercent:b}});}\npush('📚 分类浏览',null,1);\npush('玄幻小说','https://www.xs5200.net/xuanhuanxiaoshuo/{{page}}.html',0.25);\npush('修真小说','https://www.xs5200.net/xiuzhenxiaoshuo/{{page}}.html',0.25);\npush('都市小说','https://www.xs5200.net/dushixiaoshuo/{{page}}.html',0.25);\npush('历史小说','https://www.xs5200.net/lishixiaoshuo/{{page}}.html',0.25);\npush('网游小说','https://www.xs5200.net/wangyouxiaoshuo/{{page}}.html',0.25);\npush('科幻小说','https://www.xs5200.net/kehuanxiaoshuo/{{page}}.html',0.25);\npush('言情小说','https://www.xs5200.net/yanqingxiaoshuo/{{page}}.html',0.25);\npush('🏮 全本',null,1);\npush('全本小说','https://www.xs5200.net/quanben/{{page}}.html',0.25);\npush('📊 榜单',null,1);\npush('排行榜','https://www.xs5200.net/paihangbang/',0.25);\nJSON.stringify(rows);",
+    "header": "{\"User-Agent\": \"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36\", \"Referer\": \"https://www.xs5200.net/\"}",
+    "lastUpdateTime": 1792721558450,
+    "loginCheckJs": "var b=''+(result.body()||'');\nvar c=result.code();\nif(c>=400||/Just a moment|Enable JavaScript|_cf_chl|cf-chl|请验证您是真人/.test(b)){\nvar d={};try{d=JSON.parse(String(source.getVariable()||'{}'));}catch(e){}\nvar now=Date.now();\nif(now-((d._shieldT||0))>60000){\nd._shieldT=now;\ntry{source.setVariable(JSON.stringify(d));}catch(e){}\njava.toast('站内搜索仍被 Cloudflare 质询，本机内核指纹未被放行，请改用「5200小说网-Bing兜底」书源搜索');\n}\n}\nresult;",
+    "respondTime": 180000,
+    "ruleBookInfo": {
+      "author": "@CSS:div.info > div.small > span:nth-child(1)@text##^作者：##",
+      "coverUrl": "@CSS:div.info > div.cover > img@src",
+      "intro": "@CSS:div.info > div.intro@ownText##^简介：##",
+      "kind": "@CSS:div.info > div.small > span:nth-child(2)@text##^分类：##",
+      "lastChapter": "@CSS:div.info > div.small > span:nth-child(6) > a@text",
+      "name": "@CSS:div.info > h2@text",
+      "wordCount": "@CSS:div.info > div.small > span:nth-child(4)@text##^字数：##"
+    },
+    "ruleContent": {
+      "content": "@CSS:div#content@html##下载星星阅读app[^<]*(?:<br\\s*/?>\\s*)+|\\s*https?://www\\.xs5200\\.net/\\d+_\\d+/\\d+\\.html\\s*|请记住本书首发域名[^\\n]*|手机版阅读网址[^\\n]*##"
+    },
+    "ruleExplore": {
+      "author": "@CSS:span.s4, span.s2:nth-of-type(3)@text",
+      "bookList": "@CSS:div.up div.l.bd ul li:has(a), ul.tli li",
+      "bookUrl": "@CSS:span.s2 > a, li.top > a@href",
+      "kind": "@CSS:span.s1, span.rate@text##\\[|\\]##",
+      "lastChapter": "@CSS:span.s3 a@text",
+      "name": "@CSS:span.s2 > a, li.top > a@text"
+    },
+    "ruleSearch": {
+      "author": "@CSS:span.s3@text",
+      "bookList": "@CSS:ul.lis li",
+      "bookUrl": "@CSS:span.s2 > a@href##^/##https://www.xs5200.net/",
+      "kind": "@CSS:span.s1@text##\\[|\\]##",
+      "name": "@CSS:span.s2 > a@text"
+    },
+    "ruleToc": {
+      "chapterList": "//div[contains(@class,\"listmain\")]//dl/dt[contains(text(),\"正文卷\")]/following-sibling::dd/a",
+      "chapterName": "//text()",
+      "chapterUrl": "//@href"
+    },
+    "searchUrl": "https://m.xs5200.net/search.php?keyword={{key}},{\"charset\": \"utf-8\", \"webView\": true, \"webWait\": 30000, \"headers\": {\"Referer\": \"https://m.xs5200.net/\"}}",
+    "variableComment": "搜索用隐藏 WebView 直连站内（headers 不放 UA，让系统内核 ArkWeb 用真实自洽身份发请求，与手机浏览器同构）；若被 CF 质询请改用 5200小说网-Bing兜底.json；loginCheckJs 节流时间戳存于源变量 _shieldT",
+    "weight": 0
+  }
+]
