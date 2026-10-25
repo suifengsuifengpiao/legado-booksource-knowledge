@@ -30,6 +30,7 @@
 | `cases/` | 实战层：多站案例集（兔九三/74xswz/3qdus/菠萝猫/速读谷/黄金屋/book55/纸间阅读/xs5200 9 站修复记录）+ **过盾专题（CF 盾物种分类：cookie壳页/GoEdge/五秒盾/Turnstile/altcha，Turnstile 三层死结）** + 黄金屋/book55/xs5200 站点档案 + 菠萝猫修复总结/站点档案 + 74xswz 书源逆向档案（签名机制演进：抽常量复刻→eval 官方 signJs；AES 目录接口；引擎坑记录）+ 格格党站点档案（零防护静态站基准样本：POST 搜索隐藏字段/目录全量内嵌判据/_N 页内分页三态断链/lazy 封面/搜索发现双列表结构） |
 | `references-extra/` | API 文档层：Legado_3.25 书源编写参考、方法补集、pitfalls（铁律 26「真机才暴露的列表规则三坑」+ 2026-10-24 新坑补遗 N1~N7：桩书/壳页赋值形态/nextTocUrl尾页/searchUrl内联JS不执行/altcha可webJs点/webWait别配短/UA跳域）、site-patterns（含混合聚合站 SPA+CDN 四 type 样本、纯 JS 判下一页页码判据）、legend-js-api、parse-paths、booksource-schema、apk-3.25-verified-facts |
 | `samples/` | 真机验证过的书源样本 7 份（黄金屋/无限小说网/5200小说网/话本小说/笔趣阁biquge/篱笆好文学/格格党） |
+| `releases/` | **发布物**：`legado-booksource-debug_v1.14.9.skill`——书源工坊技能包（zip 格式，与 `tools/` 脚本版本严格一致）。其他会话 / 其他 AI 下载后解压安装至各自 `~/.codebuddy/skills/legado-booksource-debug/` 即当场可用（各会话沙箱互不共享，须各自安装）。下载直链：`https://gitee.com/z157001/legado-booksource-knowledge/raw/main/releases/legado-booksource-debug_v1.14.9.skill` |
 
 阅读顺序建议：`LEGADO-书源调试知识库.md`（索引）→ `解析要点-核心引擎行为与实战坑点.md`（引擎行为）→ `cases/Legado_书源排错与实战经验_多站案例集.md`（排错实战）→ `tools/README.md`（要动手时）。
 
