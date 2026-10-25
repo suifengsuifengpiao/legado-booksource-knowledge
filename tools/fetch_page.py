@@ -74,8 +74,12 @@ def main():
 
     urls = []
     if args.input_file:
-        with open(args.input_file, encoding="utf-8") as f:
-            urls = [l.strip() for l in f if l.strip()]
+        try:
+            with open(args.input_file, encoding="utf-8-sig") as f:
+                urls = [l.strip() for l in f if l.strip()]
+        except (OSError, UnicodeDecodeError) as e:
+            print("读取 URL 清单失败(%s): %s" % (args.input_file, e), file=sys.stderr)
+            sys.exit(2)
     elif args.url and args.url != "-":
         urls = [args.url]
     elif not sys.stdin.isatty():

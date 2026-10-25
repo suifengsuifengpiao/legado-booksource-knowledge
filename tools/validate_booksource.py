@@ -119,6 +119,11 @@ def get_explore_regions(src):
 def load_source(path):
     """加载书源。兼容三种交付形态：数组（App 导入要求）、单对象、每行一个对象的 JSONL。
 
+    输入口径(P3-10 对齐 js_layer_check.py):
+      - 0 字节/纯空白文件 → ValueError(exit 2「文件为空或无有效 JSON 内容」), 不静默放行;
+      - 合法但空的 JSON 数组 [] → 合法书源组, 放行(QA 2.6 记录在案的行为);
+      - 坏 JSON(如 {"broken": ) → ValueError(exit 2), 既有行为不变。
+
     ⚠️ 实测坑（开源阅读 3.25 本地导入）：App 的导入入口用 Gson 解析并**要求数组**，
     交单对象 `{...}` 会报 ImportError: Expected BEGIN_ARRAY but was BEGIN_OBJECT。
     单对象请包装成 `[{...}]` 再给用户导入，否则用户那边"改了没生效"——他会以为
@@ -126,10 +131,19 @@ def load_source(path):
     **[ERROR] 交付形态** 报出（退出码 1），避免这条真翻车点被当成可忽略的提示。
     """
     if path == "-":
-        data = json.load(sys.stdin)
+        text = sys.stdin.read()
     else:
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, "r", encoding="utf-8-sig") as f:
             text = f.read()
+    # P3-10: 0 字节/纯空白文件不是"空书源组"。json.loads 对空串抛错后, 下面的 JSONL
+    # 兜底会把空行全部跳过、得到空列表, 曾 exit 0 报"书源字段完整, 符合规范。"——
+    # 空文件被判合规有误导性, 与该技能"失败不可静默 pass"原则相悖。与 js_layer_check.py
+    # 对齐(同输入 exit 2「无法解析为 JSON」)。合法但空的 JSON 数组([])是合法书源组
+    # (QA 2.6 记录在案的行为), 不在此列, 继续放行 —— 见 evals good-empty-array-file 标本。
+    if not text.strip():
+        raise ValueError(
+            "文件为空或无有效 JSON 内容(0 字节或纯空白): 既不是书源数组/单对象, 也不是"
+            "每行一个对象的 JSONL, 无法校验(与 js_layer_check.py 的 exit 2 口径一致)")
     try:
         data = json.loads(text)
     except ValueError:
@@ -225,7 +239,6 @@ def _opt_of_inline(s):
     if not isinstance(s, str) or not re.search(r",\s*\{", s):
         return None
     i = s.rfind(",")
-    j = s.find("{", i)
     try:
         return json.loads(s[i + 1:])
     except Exception:
@@ -309,6 +322,27 @@ def _collect_js_fragments(src):
                 add(name + "/%s<js>" % (k or "?"), m.group(1))
     walk(src, "")
     return frags
+
+
+def _is_pure_js_terminal(rule_val):
+    """规则串是否以 <js>...</js> 收尾(末段是纯 JS, 无尾部选择器/正则段)。
+
+    3.25 反编译实证(AnalyzeRule.getElements/splitSourceRule + AnalyzeByJSoup.parse):
+      - 链式形态 <js>...</js>div.x: JS 返回的 HTML 字符串经 Jsoup.parse 解析成 DOM,
+        再供尾部选择器求值, 最终 result 是 Elements(List) —— 58书屋在售源实证;
+      - 末段纯 <js>: JS 返回值直接作为最终列表元素被强转 List, 非数组即
+        ClassCastException(String→List)崩溃 —— mowan v1 实证。
+    两类形态契约不同: #12 的"字符串元素+选择器子规则"混用只适用于后者。
+    与 js_layer_check.py 的同名 helper 同语义(两文件独立分发, 不共享导入)。
+    """
+    if not isinstance(rule_val, str) or "<js>" not in rule_val:
+        return False
+    last_end = None
+    for m in re.finditer(r"<js>(.*?)</js>", rule_val, re.S):
+        last_end = m.end()
+    if last_end is None:
+        return False
+    return rule_val[last_end:].strip() == ""
 
 
 def _braces_balanced(code):
@@ -445,11 +479,10 @@ def check_rule_pitfalls(src, label, errors, warns, notes):
             continue
         parts = v.split("##")
         rx = parts[1] if len(parts) > 1 else ""
-        if True:
-            if rx and "(" not in rx:
-                errors.append(
-                    "[%s] %s 的替换正则 '%s' 无捕获组却引用 $1 → 替换为空。"
-                    "应写 '^(.+)$' 而非 '^.*'" % (label, pos, rx[:40]))
+        if rx and "(" not in rx:
+            errors.append(
+                "[%s] %s 的替换正则 '%s' 无捕获组却引用 $1 → 替换为空。"
+                "应写 '^(.+)$' 而非 '^.*'" % (label, pos, rx[:40]))
 
     # 3) loginCheckJs: 带 <js> 标签必语法错(3.25 不剥标签); 本 App(3.25 反编译版)实测生效
     lc = src.get("loginCheckJs")
@@ -484,26 +517,19 @@ def check_rule_pitfalls(src, label, errors, warns, notes):
     # 5) webView 等待不足 → JS 挑战/客户端解密未完成就被截取
     webview_active = False
     for pos, k, v in rules:
-        if '"webView"' not in v and "webView" not in v:
-            continue
         if not re.search(r'"webView"\s*:\s*true', v):
             continue
         webview_active = True
         m = re.search(r'"webWait"\s*:\s*[\"\']?(\d+)', v)
         has_webjs = re.search(r'"webJs"\s*:', v) is not None
         if not m:
-            if has_webjs:
-                # 填了 webJs 会让默认等待失效，只剩约 100ms 基础延迟
-                warns.append(
-                    "[%s] %s 同时指定了 webJs 却没给 webWait: "
-                    "一旦有 webJs，默认等待失效、只剩约 100ms 基础延迟，页面未渲染完就取 DOM。"
-                    "必须显式写 webWait(JS挑战>=3000, 客户端解密>=8000)"
-                    % (label, pos))
-            else:
+            if not has_webjs:
                 warns.append(
                     "[%s] %s 启用 webView 但未指定 webWait: 3.25 默认等待约 1000ms 可能不足 → "
                     "JS 挑战/解密未完成就被截取, 建议 >=3000(JS挑战)/8000(客户端解密)"
                     % (label, pos))
+            # webView + webJs 却无 webWait 的告警下沉到 check_url_options(解析对象层统一报),
+            # 与 §5 各自只覆盖互补区间, 避免同根双重告警同屏出现两条
         elif int(m.group(1)) < 3000:
             warns.append(
                 "[%s] %s 的 webWait=%s 偏小: 启用 webView 后 JS 挑战/客户端解密需要足够时间完成, "
@@ -562,9 +588,12 @@ def check_rule_pitfalls(src, label, errors, warns, notes):
     if isinstance(_rs, dict):
         _l0_blob += json.dumps(_rs, ensure_ascii=False) + " "
     _SIGN_PATTERNS = (
-        r"\bsign\b", r"signature", r"_sig\b", r"\btoken\b", r"\bnonce\b",
+        r"\bsign\b", r"signature", r"_sig\b", r"\bnonce\b",
         r"\bhmac\b", r"\bmd5\b", r"encrypt", r"_snc\b", r"\bsnc\b",
         r"vcode", r"captcha", r"verification",
+        # 单独出现的 token(如 &token=xxx 会话参数)不算签名特征, 仅当其紧邻 sign 共存时才视为签名,
+        # 否则普通会话参数会被误推"签名站未证伪"(P3-4 收紧)
+        r"sign.{0,24}token|token.{0,24}sign",
     )
     _L0_MARKERS = ("证伪", "l0", "l0_probe", "probe", "先测", "已测", "先证", "证伪过", "已L0", "l0:")
     if any(re.search(p, _l0_blob, re.I) for p in _SIGN_PATTERNS):
@@ -656,6 +685,67 @@ def check_rule_pitfalls(src, label, errors, warns, notes):
                 "中间章节全部丢失(998章书只拿到298章实证)。正解: 纯 JS 按页码确定性递增(下一页优先、否则"
                 "page+1, 末页返回空串自然停止防回环), 见 site-patterns.md「目录/正文分页翻页」+"
                 "「站点样本：黄金屋」+ pitfalls 铁律20。" % (label, grp, fld))
+
+    # 12) 列表规则 <js> + 纯选择器子规则 → 真机确定性取空(mowan v2 实证: 列表大小255但书名全空)
+    #     机理: bookList/chapterList 的末段是纯 <js> 时, 其返回值(字符串/对象)就是列表元素;
+    #     真机不把字符串元素解析成 HTML, CSS/JSOUP/XPath 选择器子规则在字符串元素上 100% 取空。
+    #     <js> 在 Rhino 里只能返回字符串/数字/对象, 永远返回不了 DOM 元素 —— 该组合是确定性
+    #     取空而非启发式。本地校验用真 Jsoup 对列表元素求值(天然把字符串解析成 HTML), 比真机
+    #     宽松, 系统性假绿 —— 本检查补上这一环(与 js_layer_check.py 的 list-js 类型闸门互补:
+    #     那个管"末段纯 <js> 返回值必须是数组", 这个管"末段纯 <js> 数组元素+选择器子规则"组合)。
+    #     ⚠ 仅"末段纯 <js>"适用: 链式形态(<js>...</js>选择器)下 JS 返回值是后段输入, 经
+    #     AnalyzeByJSoup.parse 当 HTML 解析后供尾部选择器求值, 列表元素是真实 DOM, 选择器
+    #     子规则正常工作(3.25 反编译实证; 58书屋在售源即此形态 —— 2026-10-25 验证师证伪
+    #     初版过严后补的 carve-out)。
+    #     只 WARN 不 ERROR: 真机实证 + JsoupRuleEval 排除法结论, 尚未取 dex 描述符级证据;
+    #     若所用 App 版本确实解析字符串元素可忽略本条(证据升级后另行登记为 ERROR)。
+    _LIST_JS_SUBFIELDS = {
+        "bookList": ("name", "author", "bookUrl", "coverUrl", "intro", "kind",
+                     "wordCount", "lastChapter", "updateTime"),
+        "chapterList": ("chapterName", "chapterUrl", "updateTime"),
+    }
+
+    def _list_js_regions():
+        """产出 (组名, 区域 dict): 搜索区 + ruleToc + explore 全部条目。
+
+        搜索区走 _get_search_region(): 新 schema 在顶层 ruleSearch 对象, 旧写法内嵌
+        searchUrl 对象 —— 只查 src.get("ruleSearch") 会整体漏掉旧 schema(验证师 A'
+        复核实证的漏报通道, P2 修复)。
+        explore 走 get_explore_regions(): 兼容结构 a(exploreUrl 每条内嵌 ruleExplore,
+        可能是字符串化 JSON)与结构 b(共用顶层 ruleExplore) —— 只查顶层会整体漏掉结构 a
+        (2026-10-25 验证师 Major-3 实证的漏报通道)。
+        """
+        r = _get_search_region(src)
+        if isinstance(r, dict):
+            yield ("ruleSearch", r)
+        r = _parse_rule_region(src.get("ruleToc"))
+        if isinstance(r, dict):
+            yield ("ruleToc", r)
+        for ei, reg in enumerate(get_explore_regions(src) or []):
+            if isinstance(reg, dict):
+                yield ("ruleExplore#%d" % ei, reg)
+
+    for grp, region in _list_js_regions():
+        for list_key, sub_keys in _LIST_JS_SUBFIELDS.items():
+            lv = region.get(list_key)
+            if not isinstance(lv, str) or "<js>" not in lv:
+                continue
+            if not _is_pure_js_terminal(lv):
+                continue  # 链式形态: <js> 输出是后段输入, 混用契约不适用
+            # 空串子规则是"未配置该字段"(如 mowan 的 lastChapter=''), 不是选择器 —— 不算纯选择器,
+            # 否则对留空字段的书源误报(mowan v4 实测抓到的自身误报, 2026-10-25 修)。
+            pure_sel = [sk for sk in sub_keys
+                        if isinstance(region.get(sk), str) and region[sk].strip()
+                        and "<js>" not in region[sk] and "@js:" not in region[sk]]
+            if pure_sel:
+                warns.append(
+                    "[%s] %s.%s 是 <js> 列表规则, 但同组子规则 %s 是纯选择器: 真机不会把 <js> 返回的"
+                    "字符串元素解析成 HTML, 选择器在字符串元素上 100%% 取空(mowan v2 实证: 列表大小255"
+                    "但书名全空、书籍总数0; 本地真 Jsoup 复现规则合法→锁定为引擎行为差异)。应返回 "
+                    "JSON.stringify(item) 数组, 子规则改 <js> 内联解析该 JSON(或把 helper 放进 jsLib "
+                    "共享; 注意真机每个 <js> 独立作用域, helper 定义在 bookList 的 <js> 里对子规则"
+                    "不可见, dex 实证); 若确知所用 App 版本会解析字符串元素可忽略本条"
+                    % (label, grp, list_key, "/".join(pure_sel)))
 
 
 # Legado 3.25 反编译版 AnalyzeUrl 的 UrlOption 字段（实证）。
@@ -777,6 +867,39 @@ def check_source(src, idx, errors, warns, notes):
     for k in REQUIRED_TOP:
         if not src.get(k):
             errors.append("[%s] 缺必备顶层字段: %s" % (label, k))
+
+    # bookSourceType 缺失或非合法值: App 按默认 0(文本)静默处理且无任何提示 ——
+    # 音频(1)/图片(2)/文件(3)源会静默走错分组, 用户完全看不出问题, 故至少 WARN 点名。
+    # 合法值全集 0/1/2/3 由 dex 三证据链坐实(apk-3.25-verified-facts.md 第七节):
+    # arrays.xml book_type 四项 + BookSourceEditActivity.smali:655-676 type=3 独立分支
+    # + booksource-schema.md:43 文档原文。v1.14.1 曾误按 (0,1,2) 校验把合法文件类书源
+    # 误报非法(护栏制造 bug), 修此坑时勿再改回去。
+    # 字符串数字("0")是部分编辑器/导出工具的产物, Gson 能转, 宽容放行(宁可少抓不可乱叫)。
+    bst = src.get("bookSourceType", "__MISSING__")
+    if bst is None or bst == "__MISSING__":
+        # 键缺失与显式 null 在 App 里都按默认 0(文本)处理, 但提示上区分一下, 方便用户定位
+        _miss = "未设置" if bst == "__MISSING__" else "显式设为 null"
+        warns.append("[%s] %s bookSourceType: App 按默认 0(文本)处理且无提示, "
+                     "音频(1)/图片(2)/文件(3)源务必显式声明, 文本源也建议写 0 表意" % (label, _miss))
+    elif isinstance(bst, bool):
+        warns.append("[%s] bookSourceType=%r 不是合法值: 应为 0(文本)/1(音频)/2(图片)/3(文件), "
+                     "布尔值 App 无法识别会导致导入失败" % (label, bst))
+    else:
+        try:
+            # 部分编辑器导出 1.0 这类浮点写法, Gson 会截断成 1 当合法值;
+            # 但 1.5 等非整数浮点 Gson 实抛 JsonSyntaxException 导入失败, 不宽容。
+            _f = float(str(bst).strip())
+            if not _f.is_integer():
+                raise ValueError("非整数型数值")
+            bst_n = int(_f)
+        except (TypeError, ValueError):
+            bst_n = None
+        if bst_n is None:
+            warns.append("[%s] bookSourceType=%r 不是合法值: 应为 0(文本)/1(音频)/2(图片)/3(文件), "
+                         "App 无法识别会导致导入失败" % (label, bst))
+        elif bst_n not in (0, 1, 2, 3):
+            warns.append("[%s] bookSourceType=%r 不是合法值: 应为 0(文本)/1(音频)/2(图片)/3(文件), "
+                         "App 无法识别会导致导入失败" % (label, bst))
 
     header = src.get("header")
     if not header:

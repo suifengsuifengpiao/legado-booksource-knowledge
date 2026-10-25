@@ -238,7 +238,8 @@ def probe_webview(url_template, opts=None, keywords=None, sample_dir=None,
                         if sample_dir and not res["sample"]:
                             os.makedirs(sample_dir, exist_ok=True)
                             p = os.path.join(sample_dir, "search.html")
-                            open(p, "w", encoding="utf-8").write(out)
+                            with open(p, "w", encoding="utf-8") as _f:
+                                _f.write(out)
                             res["sample"] = p
                     else:
                         limited, why = detect_ratelimit(out or page_html_fallback(ctx, u))

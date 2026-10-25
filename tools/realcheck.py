@@ -53,7 +53,8 @@ except ImportError:
 
 def load_source(path):
     try:
-        data = json.load(open(path, encoding="utf-8"))
+        with open(path, encoding="utf-8-sig") as _f:
+            data = json.load(_f)
     except Exception as e:
         sys.stderr.write("[错误] 无法解析书源 JSON: %s\n" % e)
         sys.exit(2)
@@ -125,7 +126,7 @@ class Checker(object):
     def __init__(self, src, args):
         self.src = src
         self.args = args
-        self.base = src.get("bookSourceUrl", "").rstrip("/")
+        self.base = str(src.get("bookSourceUrl") or "").rstrip("/")
         self.fails = 0
         self.passes = 0
         self.app = "325"

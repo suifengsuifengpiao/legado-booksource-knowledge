@@ -1,0 +1,578 @@
+{
+  "schema_version": "1",
+  "capabilities": [
+    "source-generation",
+    "field-validation",
+    "rule-verification",
+    "live-fetch",
+    "protection-reverse",
+    "device-diagnosis"
+  ],
+  "dependencies": [
+    {
+      "id": "python-runtime",
+      "type": "runtime",
+      "required": true,
+      "auth_type": "none",
+      "capabilities": [
+        "source-generation",
+        "field-validation",
+        "rule-verification",
+        "live-fetch",
+        "protection-reverse",
+        "device-diagnosis"
+      ],
+      "checks": [
+        {
+          "id": "python-version",
+          "type": "python",
+          "required": true,
+          "min_version": "3.10"
+        }
+      ],
+      "setup": {
+        "official_home_url": "https://www.python.org/",
+        "official_docs_url": "https://docs.python.org/3/",
+        "steps": [
+          "安装 Python 3.10 及以上版本",
+          "确认 python3 在 PATH 中可用"
+        ],
+        "verify": "python3 --version",
+        "security": "无需凭据；脚本只读取用户提供的书源 JSON 与临时工作目录，不采集、不上传任何用户数据",
+        "verified_at": "2026-10-02",
+        "applies_to_version": "3.10 及以上"
+      },
+      "degradation": [
+        {
+          "capability": "source-generation",
+          "trigger": "Python 运行时不可用或低于 3.10",
+          "fallback": "按 references/workflow-detail.md 的规则模板手工编写书源 JSON，不做脚本校验",
+          "user_input": "目标站点 URL、页面样本或 CMS 类型",
+          "limitations": "无法运行校验脚本，字段完整性与铁律只能人工核对，可能漏掉静默失效类问题",
+          "evidence_label": "未验证",
+          "recovery": "安装 Python 3.10+ 后重新运行环境检查",
+          "stop_condition": "运行时缺失时不得宣称书源已通过校验"
+        },
+        {
+          "capability": "field-validation",
+          "trigger": "Python 运行时不可用或低于 3.10",
+          "fallback": "人工对照 references/booksource-schema.md 逐字段核对，重点看交付形态、XPath 前导点、## 捕获组",
+          "user_input": "书源 JSON 全文",
+          "limitations": "无法自动检测 6 项铁律，静默失效类错误（前导点、字段放错组）极易漏检",
+          "evidence_label": "未验证",
+          "recovery": "安装 Python 3.10+ 后运行 scripts/validate_booksource.py",
+          "stop_condition": "未跑校验不得给出 ERROR=0 的结论"
+        },
+        {
+          "capability": "rule-verification",
+          "trigger": "Python 运行时不可用或低于 3.10",
+          "fallback": "让用户在 App 调试界面查看命中数与日志，人工判断规则是否取到值",
+          "user_input": "App 调试日志截图与页面源码",
+          "limitations": "只能看最终效果，无法定位是哪一级规则取空",
+          "evidence_label": "未验证",
+          "recovery": "安装 Python 3.10+ 后运行 scripts/test_parse.py",
+          "stop_condition": "无命中证据不得交付"
+        },
+        {
+          "capability": "live-fetch",
+          "trigger": "Python 运行时不可用或低于 3.10",
+          "fallback": "由用户用浏览器或 App 打开页面后回传源码，改为本地样本验证",
+          "user_input": "用户回传的页面源码或截图",
+          "limitations": "拿不到真实响应，无法做带/不带 cookie 的对比取证",
+          "evidence_label": "未验证",
+          "recovery": "安装 Python 3.10+ 后运行 scripts/verify_booksource.py",
+          "stop_condition": "无真实响应不得判断站点是静态还是动态"
+        },
+        {
+          "capability": "protection-reverse",
+          "trigger": "Python 运行时不可用或低于 3.10",
+          "fallback": "直接按已知 CMS 模板推测规则，并在书源注释与交付说明标注推测版",
+          "user_input": "目标站点 URL",
+          "limitations": "无法绕过 Cloudflare、无法解析字体反爬，防护站基本无解",
+          "evidence_label": "未验证",
+          "recovery": "安装 Python 3.10+ 后运行 scripts/bypass_cf.py 或 reverse_font.py",
+          "stop_condition": "不得把推测规则当作已验证结果交付"
+        },
+        {
+          "capability": "device-diagnosis",
+          "trigger": "Python 运行时不可用或低于 3.10",
+          "fallback": "改为人工列出需要用户在 App 里逐项确认的检查清单",
+          "user_input": "App 版本与调试日志截图",
+          "limitations": "无法生成探针书源，诊断项全靠用户手工执行，易漏项",
+          "evidence_label": "未验证",
+          "recovery": "安装 Python 3.10+ 后运行 scripts/make_probe_source.py",
+          "stop_condition": "不得凭猜测断定某字段在用户 App 上是否执行"
+        }
+      ]
+    },
+    {
+      "id": "lxml",
+      "type": "runtime",
+      "required": false,
+      "auth_type": "none",
+      "capabilities": [
+        "rule-verification"
+      ],
+      "checks": [
+        {
+          "id": "lxml-import",
+          "type": "python",
+          "required": false,
+          "command": "lxml.html"
+        }
+      ],
+      "setup": {
+        "official_home_url": "https://lxml.de/",
+        "official_docs_url": "https://lxml.de/",
+        "steps": [
+          "pip3 install lxml",
+          "Windows 无编译环境时改用 pip3 install lxml 提供的预编译 wheel"
+        ],
+        "verify": "python3 -c \"import lxml.html\"",
+        "security": "无需凭据；只在本地解析用户提供的 HTML 样本",
+        "verified_at": "2026-10-02",
+        "applies_to_version": "提供 lxml.html 的任意较新版本"
+      },
+      "degradation": [
+        {
+          "capability": "rule-verification",
+          "trigger": "python3 -c \"import lxml.html\" 失败",
+          "fallback": "仅做静态检查：人工核对 XPath 写法（禁止前导点、必须 // 开头），再由用户在 App 实测命中",
+          "user_input": "HTML 样本与 App 调试日志",
+          "limitations": "无法预先验证规则命中数，只能等真机结果，定位周期变长",
+          "evidence_label": "未验证",
+          "recovery": "pip3 install lxml 后重新运行环境检查",
+          "stop_condition": "未验证命中不得标记规则正确"
+        }
+      ]
+    },
+    {
+      "id": "curl-cffi",
+      "type": "runtime",
+      "required": false,
+      "auth_type": "none",
+      "capabilities": [
+        "live-fetch",
+        "protection-reverse"
+      ],
+      "checks": [
+        {
+          "id": "curl-cffi-import",
+          "type": "python",
+          "required": false,
+          "command": "curl_cffi"
+        }
+      ],
+      "setup": {
+        "official_home_url": "https://github.com/lexiforest/curl_cffi",
+        "official_docs_url": "https://curl-cffi.readthedocs.io/",
+        "steps": [
+          "pip3 install curl_cffi",
+          "无需额外下载浏览器，库自带 TLS 指纹伪装"
+        ],
+        "verify": "python3 -c \"from curl_cffi import requests\"",
+        "security": "无需凭据；不写入任何 Cookie 到书源，抓取到的 Cookie 只在本次会话的临时目录中使用",
+        "verified_at": "2026-10-02",
+        "applies_to_version": "提供 impersonate 参数的任意版本"
+      },
+      "degradation": [
+        {
+          "capability": "live-fetch",
+          "trigger": "python3 -c \"from curl_cffi import requests\" 失败",
+          "fallback": "回退到 requests 直连；抓不到时改由用户在浏览器或 App 里打开页面并回传源码",
+          "user_input": "页面源码或截图",
+          "limitations": "无指纹伪装，Cloudflare 站点大概率返回挑战页，样本可能拿不到",
+          "evidence_label": "部分验证",
+          "recovery": "pip3 install curl_cffi 后重跑 scripts/fetch_page.py",
+          "stop_condition": "拿不到真实响应时不得判定站点加载类型"
+        },
+        {
+          "capability": "protection-reverse",
+          "trigger": "python3 -c \"from curl_cffi import requests\" 失败",
+          "fallback": "跳过自动绕过，按 CMS 模板推测规则并标注推测版，或建议用户换 App 内 WebView 自取",
+          "user_input": "目标站点 URL",
+          "limitations": "无法过 Cloudflare 挑战，硬防护站点只能标注不可用",
+          "evidence_label": "未验证",
+          "recovery": "安装 curl_cffi，或改用 scripts/bypass_cf.py 的真实浏览器方案",
+          "stop_condition": "不得把挑战页当成正常页面分析"
+        }
+      ]
+    },
+    {
+      "id": "playwright",
+      "type": "runtime",
+      "required": false,
+      "auth_type": "none",
+      "capabilities": [
+        "protection-reverse"
+      ],
+      "checks": [
+        {
+          "id": "playwright-import",
+          "type": "python",
+          "required": false,
+          "command": "playwright.sync_api"
+        }
+      ],
+      "setup": {
+        "official_home_url": "https://playwright.dev/python/",
+        "official_docs_url": "https://playwright.dev/python/docs/intro",
+        "steps": [
+          "pip3 install playwright",
+          "playwright install chromium（首次需要下载浏览器内核）"
+        ],
+        "verify": "python3 -c \"from playwright.sync_api import sync_playwright\"",
+        "security": "无需凭据；浏览器只在本地临时会话中打开目标页面，不保存登录态，不上传任何数据",
+        "verified_at": "2026-10-02",
+        "applies_to_version": "Python 版 1.x"
+      },
+      "degradation": [
+        {
+          "capability": "protection-reverse",
+          "trigger": "playwright 未安装或 chromium 内核缺失",
+          "fallback": "改用 curl_cffi 指纹伪装；仍失败则按 CMS 模板推测并标注推测版",
+          "user_input": "目标站点 URL 与已尝试的抓取结果",
+          "limitations": "Turnstile 交互挑战无法程序化通过，只能标注为需真机验证",
+          "evidence_label": "未验证",
+          "recovery": "pip3 install playwright && playwright install chromium",
+          "stop_condition": "反复重试无效时停止，最多尝试 1 次即降级"
+        }
+      ]
+    },
+    {
+      "id": "fonttools",
+      "type": "runtime",
+      "required": false,
+      "auth_type": "none",
+      "capabilities": [
+        "protection-reverse"
+      ],
+      "checks": [
+        {
+          "id": "fonttools-import",
+          "type": "python",
+          "required": false,
+          "command": "fontTools.ttLib"
+        }
+      ],
+      "setup": {
+        "official_home_url": "https://fonttools.readthedocs.io/en/latest/",
+        "official_docs_url": "https://fonttools.readthedocs.io/en/latest/",
+        "steps": [
+          "pip3 install fonttools"
+        ],
+        "verify": "python3 -c \"from fontTools.ttLib import TTFont\"",
+        "security": "无需凭据；只读取站点提供的字体文件做本地解析",
+        "verified_at": "2026-10-02",
+        "applies_to_version": "提供 fontTools.ttLib.TTFont 的任意版本"
+      },
+      "degradation": [
+        {
+          "capability": "protection-reverse",
+          "trigger": "python3 -c \"from fontTools.ttLib import TTFont\" 失败",
+          "fallback": "改为人工对照字形：让用户在浏览器里对比乱码与正字的映射，再由人工生成替换规则",
+          "user_input": "字体文件与若干组乱码/正字对照",
+          "limitations": "无法自动反推映射，字形名不标准时只能人工处理",
+          "evidence_label": "未验证",
+          "recovery": "pip3 install fonttools 后运行 scripts/reverse_font.py",
+          "stop_condition": "映射未确认不得写入书源"
+        }
+      ]
+    },
+    {
+      "id": "network-access",
+      "type": "network",
+      "required": false,
+      "auth_type": "none",
+      "capabilities": [
+        "live-fetch",
+        "protection-reverse"
+      ],
+      "checks": [
+        {
+          "id": "https-reachable",
+          "type": "url",
+          "required": false,
+          "url": "https://docs.python.org/3/",
+          "method": "GET",
+          "expected_status": [
+            200
+          ]
+        }
+      ],
+      "setup": {
+        "official_home_url": "https://docs.python.org/3/",
+        "official_docs_url": "https://docs.python.org/3/",
+        "steps": [
+          "确认执行环境可访问外网 HTTPS（以 Python 官方文档站的匿名只读探测为参照）",
+          "受限网络下改为让用户在本地或 App 内取页面后回传源码"
+        ],
+        "verify": "python3 scripts/check_environment.py --network --capability live-fetch",
+        "security": "探测为匿名只读 HTTPS 请求，不携带任何凭据；抓取到的 Cookie 不写回书源文件",
+        "verified_at": "2026-10-02",
+        "applies_to_version": "无版本要求"
+      },
+      "degradation": [
+        {
+          "capability": "live-fetch",
+          "trigger": "环境检查未启用网络探测或探测失败",
+          "fallback": "改由用户提供页面源码或 App 调试日志，脚本只做本地样本验证",
+          "user_input": "页面源码、截图或 App 调试日志",
+          "limitations": "无法做带/不带 cookie 的对比取证，cookie 判别型防爬无法当场判定",
+          "evidence_label": "部分验证",
+          "recovery": "恢复网络后加 --network 重新探测并抓取",
+          "stop_condition": "拿不到真实响应时不得断言站点是静态还是 JS 渲染"
+        },
+        {
+          "capability": "protection-reverse",
+          "trigger": "环境检查未启用网络探测或探测失败",
+          "fallback": "标注为推测版书源，明确需用户在真机实测确认",
+          "user_input": "目标站点 URL",
+          "limitations": "无法验证防护强度，可能给出用不了的方案",
+          "evidence_label": "未验证",
+          "recovery": "恢复网络后运行 scripts/bypass_cf.py",
+          "stop_condition": "不得把推测规则说成已绕过防护"
+        }
+      ]
+    },
+    {
+      "id": "node-runtime",
+      "type": "runtime",
+      "required": false,
+      "auth_type": "none",
+      "capabilities": [
+        "field-validation",
+        "rule-verification"
+      ],
+      "checks": [
+        {
+          "id": "node-version",
+          "type": "cli",
+          "required": false,
+          "command": "node",
+          "min_version": "16"
+        }
+      ],
+      "setup": {
+        "official_home_url": "https://nodejs.org/",
+        "official_docs_url": "https://nodejs.org/docs/latest/api/",
+        "steps": [
+          "安装 Node.js 16 及以上版本",
+          "确认 node 在 PATH 中可用"
+        ],
+        "verify": "node --version",
+        "security": "无需凭据；scripts/js_layer_check.py 用 Node 的 vm 模块在隔离上下文里运行书源 webJs/js 做语法与运行校验，不执行任何网络或文件副作用",
+        "verified_at": "2026-10-03",
+        "applies_to_version": "16 及以上"
+      },
+      "degradation": [
+        {
+          "capability": "field-validation",
+          "trigger": "node 不可用",
+          "fallback": "js_layer_check.py 自动跳过（exit 2），回归中该项标 SKIP 不计入失败；其余 Python 校验照常",
+          "user_input": "书源 JSON 或待查 JS 片段",
+          "limitations": "失去 Rhino 层 JS 钩子的语法/运行校验，webJs/js 钩子的虚假安全感回到未覆盖状态",
+          "evidence_label": "未验证",
+          "recovery": "安装 Node 后重新运行 scripts/js_layer_check.py 或 run_evals.py",
+          "stop_condition": "Node 缺失时不得宣称 JS 钩子已通过校验"
+        },
+        {
+          "capability": "rule-verification",
+          "trigger": "node 不可用",
+          "fallback": "同 field-validation 降级：JS 层校验跳过，仅做静态规则检查",
+          "user_input": "书源 JSON",
+          "limitations": "无法验证 webJs 在 about:blank 死局/return null 未就绪等 JS 层行为",
+          "evidence_label": "未验证",
+          "recovery": "安装 Node 后重跑",
+          "stop_condition": "未跑 JS 层不得标 webJs 校验通过"
+        }
+      ]
+    },
+    {
+      "id": "beautifulsoup4",
+      "type": "runtime",
+      "required": false,
+      "auth_type": "none",
+      "capabilities": [
+        "rule-verification"
+      ],
+      "checks": [
+        {
+          "id": "bs4-import",
+          "type": "python",
+          "required": false,
+          "command": "bs4"
+        }
+      ],
+      "setup": {
+        "official_home_url": "https://www.crummy.com/software/BeautifulSoup/",
+        "official_docs_url": "https://www.crummy.com/software/BeautifulSoup/bs4/doc/",
+        "steps": [
+          "pip3 install beautifulsoup4",
+          "校验器用 bs4 跑 JSOUP 默认(@链式)规则的 @属性/text/html 取值与节点定位"
+        ],
+        "verify": "python3 -c \"import bs4\"",
+        "security": "无需凭据；只在本地解析用户提供的 HTML 样本",
+        "verified_at": "2026-10-08",
+        "applies_to_version": "提供 bs4 的任意较新版本"
+      },
+      "degradation": [
+        {
+          "capability": "rule-verification",
+          "trigger": "python3 -c \"import bs4\" 失败",
+          "fallback": "JSOUP @链式规则本地取值报 [ERR] 并计入验证失败(如实暴露缺失, 不假通过)，XPath/JSONPath 规则仍可验证",
+          "user_input": "HTML 样本与 App 调试日志",
+          "limitations": "无法本地验证 [class]/[tag]/@attr 这类 JSOUP 默认规则；含 ~= 的规则(Jsoup 正则匹配语义)与问号形态规则(幻影, 恒不命中)仍走真 Jsoup 通道(需 Java)",
+          "evidence_label": "未验证",
+          "recovery": "pip3 install beautifulsoup4 后重新运行 scripts/test_parse.py",
+          "stop_condition": "bs4 缺失时 JSOUP @链式规则不得标记已通过校验"
+        }
+      ]
+    },
+    {
+      "id": "java-runtime",
+      "type": "runtime",
+      "required": false,
+      "auth_type": "none",
+      "capabilities": [
+        "rule-verification"
+      ],
+      "checks": [
+        {
+          "id": "java-version",
+          "type": "cli",
+          "required": false,
+          "command": "java",
+          "min_version": "11"
+        }
+      ],
+      "setup": {
+        "official_home_url": "https://www.java.com/",
+        "official_docs_url": "https://docs.oracle.com/en/java/",
+        "steps": [
+          "安装 JRE 11 及以上（校验器用其跑打包内置的 scripts/jsoup_eval/jsoup-1.17.2.jar 做真 Jsoup 求值）",
+          "校验器自动定位 sdkman/系统 PATH 中的 java，找不到时回退 JSOUP_EXT 降级"
+        ],
+        "verify": "java -version",
+        "security": "无需凭据；jar 随技能内置，只在本地用 Jsoup 解析用户提供的 HTML 样本",
+        "verified_at": "2026-10-08",
+        "applies_to_version": "JRE 11 及以上"
+      },
+      "degradation": [
+        {
+          "capability": "rule-verification",
+          "trigger": "java 不可用 或 scripts/jsoup_eval/jsoup-1.17.2.jar 缺失",
+          "fallback": "含 ~= 的规则(Jsoup 正则匹配)与问号形态规则(幻影, 恒不命中)降级为 JSOUP_EXT「需真机验证」(不误报非法、不假通过)",
+          "user_input": "HTML 样本与 App 调试日志",
+          "limitations": "bs4 也缺失时 JSOUP 默认规则整体无法本地验证；仅 XPath/JSONPath 规则可继续",
+          "evidence_label": "未验证",
+          "recovery": "安装 JRE 后重新运行 scripts/test_parse.py 或 evals/run_evals.py",
+          "stop_condition": "真 Jsoup 通道不可用且含扩展属性选择器时，不得宣称该规则已通过校验"
+        }
+      ]
+    },
+    {
+      "id": "jsonpath-ng",
+      "type": "runtime",
+      "required": false,
+      "auth_type": "none",
+      "capabilities": [
+        "rule-verification"
+      ],
+      "checks": [
+        {
+          "id": "jsonpath-ng-import",
+          "type": "python",
+          "required": false,
+          "command": "jsonpath_ng"
+        }
+      ],
+      "setup": {
+        "official_home_url": "https://github.com/httplib2/jsonpath-ng",
+        "official_docs_url": "https://github.com/httplib2/jsonpath-ng",
+        "steps": [
+          "pip3 install jsonpath-ng",
+          "校验器用其解析 $.xxx JSONPath 规则(配合 @Json: 前缀与 JSON 响应)"
+        ],
+        "verify": "python3 -c \"import jsonpath_ng\"",
+        "security": "无需凭据；只在本地解析用户提供的 JSON 样本",
+        "verified_at": "2026-10-08",
+        "applies_to_version": "提供 jsonpath_ng.ext 的任意较新版本"
+      },
+      "degradation": [
+        {
+          "capability": "rule-verification",
+          "trigger": "python3 -c \"import jsonpath_ng\" 失败",
+          "fallback": "JSONPath 规则本地求值报 [ERR] 并计入验证失败(如实暴露缺失, 不假通过)",
+          "user_input": "JSON 样本与 App 调试日志",
+          "limitations": "无法本地验证 $.xxx 取值规则",
+          "evidence_label": "未验证",
+          "recovery": "pip3 install jsonpath-ng 后重新运行 scripts/test_parse.py",
+          "stop_condition": "JSONPath 规则不得在未验证时标记通过"
+        }
+      ]
+    }
+  ],
+  "functional_degradations": [
+    {
+      "capability": "source-generation",
+      "trigger": "拿不到真实页面样本（无网络、防护拦截或用户未提供）",
+      "fallback": "基于站点 CMS 类型套用通用模板生成书源，并在 bookSourceComment 与交付说明标注推测版",
+      "user_input": "站点 URL，或用户回传的页面源码/截图",
+      "limitations": "容器 class/id 为推测值，命中率无保证，必须真机实测",
+      "evidence_label": "未验证",
+      "recovery": "拿到真实页面样本后用 scripts/test_parse.py 复核并修正规则",
+      "stop_condition": "拿不到任何页面证据时只给结构建议，不给完整书源"
+    },
+    {
+      "capability": "field-validation",
+      "trigger": "书源 JSON 无法解析（格式错误、编码问题或缺少顶层结构）",
+      "fallback": "先修 JSON 语法与编码，再校验；无法修复时人工对照字段规范逐项核对",
+      "user_input": "可解析的书源 JSON",
+      "limitations": "未解析通过时校验器无法工作，字段结论不可用",
+      "evidence_label": "部分验证",
+      "recovery": "修正 JSON 后重新运行 scripts/validate_booksource.py",
+      "stop_condition": "解析失败不得给出校验通过结论"
+    },
+    {
+      "capability": "rule-verification",
+      "trigger": "缺少对应区域的 HTML/JSON 样本（如只给了搜索页没有正文页）",
+      "fallback": "只验证已提供样本的区域，其余标为跳过，不计入失败",
+      "user_input": "缺失区域的页面样本",
+      "limitations": "未验证区域的规则正确性未知，交付时必须列为待验证项",
+      "evidence_label": "部分验证",
+      "recovery": "补齐样本后运行 scripts/test_parse.py 或 verify_booksource.py",
+      "stop_condition": "核心区域（搜索/目录/正文）全部未验证时不得交付"
+    },
+    {
+      "capability": "live-fetch",
+      "trigger": "目标站点返回 Cloudflare 挑战页、Turnstile 或受保护接口",
+      "fallback": "标为 SKIP 不计入失败；改用发现频道取书，或让用户用 App WebView 自取并回传",
+      "user_input": "可用的替代入口或用户回传的页面",
+      "limitations": "沙盒为数据中心 IP，强 Turnstile 常无法放行，此时不能宣称抓取成功",
+      "evidence_label": "部分验证",
+      "recovery": "换网络环境或用 scripts/bypass_cf.py 真实浏览器重试，最多 1 次",
+      "stop_condition": "连续失败后停止抓取尝试，转入推测版并标注"
+    },
+    {
+      "capability": "protection-reverse",
+      "trigger": "站点使用无法本地复现的签名、指纹校验或人工验证码",
+      "fallback": "判定为书源无解，明确告知需 App 内 WebView 或放弃该源",
+      "user_input": "目标站点 URL 与已尝试结果",
+      "limitations": "不能保证绕过，只给出结论与替代路径",
+      "evidence_label": "未验证",
+      "recovery": "站点防护策略变化后重新评估",
+      "stop_condition": "不得提供绕过付费墙或登录校验的方案"
+    },
+    {
+      "capability": "device-diagnosis",
+      "trigger": "用户无法导入探针或无法回传截图（无电脑、无截图条件）",
+      "fallback": "改为按 App 版本指纹与字段可用性矩阵推断，并明确标注为推断结论",
+      "user_input": "App 版本号",
+      "limitations": "字段是否执行因 App 构建而异，推断结论可能与真机不符",
+      "evidence_label": "未验证",
+      "recovery": "用户可回传截图后运行探针复核",
+      "stop_condition": "不得把推断的字段可用性当作该 App 的既定事实"
+    }
+  ]
+}

@@ -208,7 +208,8 @@ def download_js(html, base_url, out_dir, limit=25):
             if r.status_code == 200 and len(r.content) < 2_000_000:
                 fn = "js_%d.js" % len(results)
                 # r.content + 显式解码: 不用 r.text(无 charset 头时 latin-1 兜底 -> GBK 乱码)
-                open(os.path.join(out_dir, fn), "w", encoding="utf-8").write(_decode_js(r.content))
+                with open(os.path.join(out_dir, fn), "w", encoding="utf-8") as _f:
+                    _f.write(_decode_js(r.content))
                 results.append((absu, os.path.join(out_dir, fn)))
         except Exception:
             pass
@@ -222,7 +223,8 @@ def locate(js_files, suspects):
         hits = []
         for js_url, path in js_files:
             try:
-                txt = open(path, encoding="utf-8", errors="ignore").read()
+                with open(path, encoding="utf-8", errors="ignore") as _f:
+                    txt = _f.read()
             except Exception:
                 continue
             for m in re.finditer(re.escape(param), txt):
@@ -288,7 +290,8 @@ def diagnose(url, keyword=None, out=None, listen_ms=8000):
         "js_dir": tmp,
     }
     if out:
-        json.dump(report, open(out, "w", encoding="utf-8"), ensure_ascii=False, indent=2)
+        with open(out, "w", encoding="utf-8") as _f:
+            json.dump(report, _f, ensure_ascii=False, indent=2)
     return report
 
 

@@ -546,7 +546,8 @@ var handlers = [];
 var window = { addEventListener: function(n,h,o){ handlers.push(h); } };
 var document = {};
 eval(src);
-for (var i=0;i<handlers.length;i++){ try { handlers[i]({isTrusted:true}); } catch(x){} }
+var ev = {isTrusted: true};
+for (var i=0;i<handlers.length;i++){ var fn = handlers[i]; try { fn(ev); } catch(x){} }
 // ④ 从 window 上捡回签名函数（不要写死函数名的下标，按形取）
 var f = window['__SIGN'] && typeof window['__SIGN'].f === 'function' ? window['__SIGN'].f : null;
 // ⑤ ts 只取一次，签名和 POST 共用
@@ -615,7 +616,7 @@ var sg = String(f(encodeURIComponent(key), t, ts));
    // nextTocUrl（@js:；把 'page=' 换成站点真实分页参数）
    @js:(function(){
      var h=''+result, u=''+baseUrl, out='';
-     var mm=h.match(/<a\b[^>]*href\s*=\s*["']([^"']+)["'][^>]*>(?:(?!<\/a>)[\s\S]){0,80}?下一页/);
+     var mm=h.match(/<a\b[^>]*href\s*=\s*["']\s*([^"']+)["'][^>]*>(?:(?!<\/a>)[\s\S]){0,80}?下一页/);
      if(mm&&mm[1]){ out=mm[1]; }
      else {
        var cur=1,max=0,has=false,pm=u.match(/[?&]page=(\d+)/);
@@ -635,3 +636,27 @@ var sg = String(f(encodeURIComponent(key), t, ts));
 8. **`header` 必须 JSON 格式**：`{"User-Agent":"<桌面Chrome>","Referer":"https://www.huangjinwu.org/"}`；行格式会被 App 整段丢弃回落默认 UA。
 
 **铁证对照**：修复前读者目录 `(1/298)`、详情 `共998章`；修复后真机目录 `(1/998)` 全加载；`validate_booksource.py` 对该源 ERROR=0。
+
+## 站点样本：混合聚合站（SPA + CDN，四 type）—— 魔丸小说 mowan.lol 实战
+
+> 适用：一个域名聚合多家上游源、同时含文字小说/短剧/听书/漫画四类内容的站点。整套规律由 mowan.lol 真机三轮修复实证（崩溃 → 取名空 → 正文空 → 登录限额适配，见 `pitfalls.md` 铁律 26）。
+
+**关键形态（全部 curl/真机实证）**：
+
+1. **全链路 JSON API，无 HTML 页面可解析**：SPA 站点，4 个公开端点均 curl 200 取证（CF 仅作 CDN、无 JS 质询，匿名直连即可）：
+
+   | 用途 | 接口 | 返回结构 |
+   |------|------|----------|
+   | 搜索 | `GET /api/search?keyword=` | `data.items[]{id,source,type,name,author,cover,description,category,status}` |
+   | 详情 | `GET /api/book/detail?source=&book_id=` | `data{...}`（四 type 共 10 个小说源实测结构完全一致） |
+   | 目录 | `GET /api/book/chapters?source=&book_id=` | `data.chapters[]{id,name,index,source}` |
+   | 正文 | `GET /api/chapter/content?source=&chapter_id=<base64>` | `data{type,paragraphs[]{text}}` |
+
+2. **标识体系：`source`（上游平台）+ `book_id`（base64）二元组**，章节 `chapter_id` 为服务端下发 base64——所有 `bookUrl`/`chapterUrl` 用 `<js>` 拼接（`_p(result)` 兼容层同时吃 JSON 字符串 / `StrResponse.body()` / 普通对象，先 `String()` 再 `JSON.parse` 覆盖 Java String；⚠️ `_p` 需经 `jsLib` 共享或在每个子规则内联定义——真机每个 `<js>` 独立作用域，定义在 bookList 的 `<js>` 里对子规则不可见，见本条 4 与 pitfalls.md 铁律 26 坑②）。
+3. **搜索层必须按 `type` 过滤**：实测 type 分布 `novel 1053 / video 620 / audio 120 / image 36`。短剧正文 `data.content` 是 mp4 URL、`paragraphs` 为空，Legado 无文字可读 ⇒ `bookList` 的 `<js>` 里 `if(items[i].type!=='novel')continue;`，`content` 兜底排除 `http(s)://` 开头 URL。**注意副作用**：某关键词只命中短剧时搜索结果为空——属预期，不是书源 bug。
+4. **列表规则三坑全中**：本站是 `<js>` 列表规则的正确形态样板——`bookList`/`chapterList` 末段纯 `<js>` 返回**每条的 JSON 字符串数组**（`JSON.stringify(item)`），子规则用 `<js>` 解析该 JSON。⚠️ **helper 跨片段共用只有两条合法通道**（3.25 dex 实证：每个 `<js>` 独立作用域，`AnalyzeRule.evalJS` 每次新建 `ScriptBindings`，见 `apk-method-inventory.md`「`<js>` 求值作用域」）：helper 放书源 `jsLib` 字段共享（真机 shareScope 原型链注入，推荐），或每个子规则内联自含（`<js>(function(){var d=JSON.parse(result);return d.name||'';})()</js>`）。**helper 定义在 bookList 的 `<js>` 里对子规则不可见**——旧文档「子规则全部 `<js>_p(result).xxx</js>`（`_p` 在 bookList IIFE 里定义）」的写法真机必然 `ReferenceError` 取名空，已修正（pitfalls.md 铁律 26 坑②）。反例（返单个拼接字符串 → CCE 崩溃；返字符串数组 + 选择器子规则 → 取名空）见 `pitfalls.md` 铁律 26 坑①②。
+5. **业务限额码 40306 ≠ 频控**：匿名身份「累计 10 章」限额，超出后正文接口返回 `{"code":40306,"message":"您已经阅读了 10 章节了，继续阅读请登录哦"}`。解法 `enabledCookieJar:true` + App 书源管理点「登录」打开站点登录，**不是加重试/换 UA**（判读原则见 `pitfalls.md` 铁律 26 顺带）。
+6. **详情 `kind` 清洗**：各上游源 `category` 语义不一（fanqie 干净、qimao 是「分类・状态・字数」、部分源是「日期+评分」），`<js>` 里提取第一个「像分类」的段并过滤日期/评分，再拼连载状态（8/8 单元用例覆盖）。
+7. **发现页未配置**（`enabledExplore=false`）：`/api/rank` 404，榜单为登录用户个性化内容，匿名无公开接口——**发现页 404 就如实不配，别伪造入口**。
+
+**工具落点**：本形态书源的必跑项 = `validate_booksource.py`（字段/铁律/选项字段名）+ `js_layer_check.py --source`（Node 真跑全部 `<js>`，list-js 数组闸门直接拦坑①）+ `test_parse.py` 真 Jsoup 通道（坑②的排除法证据）。

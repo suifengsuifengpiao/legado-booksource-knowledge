@@ -315,7 +315,8 @@ def load_source(path):
         sys.exit(1)
     _, ext = os.path.splitext(path)
     ext = ext.lower()
-    raw = open(path, "rb").read()
+    with open(path, "rb") as _f:
+        raw = _f.read()
 
     def _decode_source_text(data):
         """utf-8 优先, GBK 文件的字节对可能意外构成合法 UTF-8(如 0xD5BE -> U+057E),

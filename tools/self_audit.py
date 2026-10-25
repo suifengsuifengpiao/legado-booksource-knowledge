@@ -7,7 +7,7 @@ self_audit.py —— 技能自身的一致性自检（改完技能必跑）。
     改技能是"点状"的, 但技能内部是"网状"依赖的 —— 文档互相引用、文档描述脚本参数、文档抄了当前
     用例数。补一个洞会顺带开出新接口, 而"新接口接没接上"只存在于人的记忆里。于是每次改完技能,
     下次检查总能翻出新的悬空引用 / 死配置 / 写死计数(1.13.10 一次审计就翻出 7 处, 其中 5 处是
-    上一轮新增能力的配套欠账)。本脚本把"能 100% 确定、零误报"的三类机械检查固化, 不靠记忆。
+    上一轮新增能力的配套欠账)。本脚本把"能 100% 确定、零误报"的五类机械检查固化, 不靠记忆。
 
 刻意不做的事（宁可少抓, 不可乱叫）：
     - 不做语义检查。"铁律写了却没配套检测"这类抓不到 —— 靠 SKILL.md 的「改动本技能后必查」清单人工过。
@@ -15,12 +15,16 @@ self_audit.py —— 技能自身的一致性自检（改完技能必跑）。
       产生几十条噪音; 噪音会被习惯性忽略, 而被忽略的护栏比没有护栏更糟(它给的是虚假安全感)。
     - 不检查"文档提到的参数脚本不认"之外的方向(实现有、文档没提), 那类多为可选参数, 报了是噪音。
 
-四项检查：
+五项检查：
     1. 悬空引用: 形如 `xxx.md「yyy」` 的明确指向, 必须在目标文档里能找到对应章节(精确/包含/字覆盖)。
     2. CLI 参数一致性: 文档里写在脚本名旁边的 `--xxx`, 脚本必须真的认(get_opt 或字面量)。
     3. 写死计数 / 版本号漂移: 文档或脚本里写死的 "N/N"、"N 项回归"; CHANGELOG 末条版本 ≠ SKILL.md version。
     4. 证据文件随包: 文档按文件名引用的证据(`.kt/.java/.jar/.dex/.apk/.skill/.html/.png`),
        必须在技能目录里真实存在 —— 防止"结论进了技能、证据留在 /tmp"这类自包含性破口。
+    5. 依赖 schema 登记: `skill-dependencies.json` 里白名单外的 check 类型/字段(以 skill-crafting
+       官方 validate 的白名单为基准), 必须在 `references/maintenance.md`「已登记的 schema 约定」
+       登记 —— 防"私扩 schema 不报错就成了暗病"这类事(官方工具链的 backup/package/install
+       全以 validate 通过为门禁, 白名单外类型会把整条交付链挡死)。
 
 用法:
     python3 scripts/self_audit.py            # 全量自检; 有 ERROR 则 exit 1
@@ -206,7 +210,8 @@ def check_hardcoded(errors):
     if os.path.isfile(meta_p):
         try:
             import json as _json
-            mv = _json.load(open(meta_p, encoding="utf-8")).get("version")
+            with open(meta_p, encoding="utf-8") as _f:
+                mv = _json.load(_f).get("version")
             if mv and mv != ver:
                 errors.append("[版本漂移] SKILL.md version=%s, _meta.json version=%s → 两处必须同步"
                               % (ver, mv))
@@ -256,6 +261,73 @@ def check_evidence_files(errors):
                     % (os.path.basename(p), i, token))
 
 
+# ---------------------------------------------------------------- 5) 依赖 schema 登记
+# 官方 skill-crafting validate 的 check 类型/字段白名单是封闭集, 且它的 backup/package/install
+# 全以 validate 通过为门禁。历史上私扩过 check 类型(为表达"第三方 Python 包可导入"——官方 python
+# 类型只验解释器版本, 没装也报 ready, 是死配置), 结果官方 validate 报 6 条 error、交付链全被挡。
+# 现行做法: 该语义用白名单内的 python 型 + command 字段承载(见 maintenance.md 登记节)。
+# 本检查守住边界: 今后再出现白名单外类型/字段, 必须先在登记节登记(说明官方 schema 为何表达不了),
+# 否则 ERROR —— 不允许"悄悄私扩、交付时才爆"。
+OFFICIAL_CHECK_TYPES = {
+    "cli", "cli_probe", "env", "file", "json_field", "mcp", "mcp_probe",
+    "auth_probe", "python", "url",
+}
+OFFICIAL_CHECK_FIELDS = {
+    "id", "type", "required", "target", "command", "min_version", "name", "path",
+    "field", "server", "url", "method", "expected_status",
+}
+REGISTER_SECTION = "已登记的 schema 约定"
+
+
+def _registered_tokens():
+    """登记节里的反引号标识符集合; 文件/章节缺失返回 None(数据源没了不能静默)。"""
+    mp = os.path.join(SKILL_DIR, "references", "maintenance.md")
+    if not os.path.isfile(mp):
+        return None
+    text = _read(mp)
+    i = text.find(REGISTER_SECTION)
+    if i < 0:
+        return set()
+    tail = text[i:]
+    j = tail.find("\n## ", 1)   # 截到下一个二级标题为止
+    if j > 0:
+        tail = tail[:j]
+    return set(re.findall(r"`([A-Za-z_][\w]*)`", tail))
+
+
+def check_dependency_schema(errors):
+    dep_p = os.path.join(SKILL_DIR, "skill-dependencies.json")
+    if not os.path.isfile(dep_p):
+        errors.append("[schema 登记] skill-dependencies.json 缺失 → 依赖检查失去数据源")
+        return
+    try:
+        import json as _json
+        with open(dep_p, encoding="utf-8") as _f:
+            data = _json.load(_f)
+    except Exception as exc:
+        errors.append("[schema 登记] skill-dependencies.json 解析失败: %s" % exc)
+        return
+    if not any(c.get("type") not in OFFICIAL_CHECK_TYPES or set(c) - OFFICIAL_CHECK_FIELDS
+               for dep in data.get("dependencies", []) for c in dep.get("checks", [])):
+        return   # 全合法, 不需要读登记表
+    registered = _registered_tokens()
+    if registered is None:
+        errors.append("[schema 登记] references/maintenance.md 缺失 → 登记表失去数据源, 无法判定")
+        return
+    for idx, dep in enumerate(data.get("dependencies", [])):
+        for cidx, check in enumerate(dep.get("checks", [])):
+            where = "dependencies[%d].checks[%d]" % (idx, cidx)
+            ctype = check.get("type")
+            if ctype not in OFFICIAL_CHECK_TYPES and ctype not in registered:
+                errors.append("[schema 登记] %s 使用白名单外类型 '%s' 且未在 maintenance.md"
+                              "「%s」登记 → 要么改回官方类型, 要么登记(写明官方 schema"
+                              " 为何表达不了)" % (where, ctype, REGISTER_SECTION))
+            for key in check:
+                if key not in OFFICIAL_CHECK_FIELDS and key not in registered:
+                    errors.append("[schema 登记] %s 使用白名单外字段 '%s' 且未在 maintenance.md"
+                                  "「%s」登记 → 同上" % (where, key, REGISTER_SECTION))
+
+
 # ---------------------------------------------------------------- 自检的自检(--self-test)
 # 铁律 22/23: 校验器自身必须有能区分正误的标本, 否则"检查器坏了"和"确实没问题"的输出长得
 # 一模一样 —— 护栏反而给虚假安全感。四类检查此前只在 1.13.10 用**手工植入**验证过一次,
@@ -272,7 +344,7 @@ _PITFALLS = """\
 
 
 def _sandbox_files(dirty):
-    """迷你技能树。dirty=True 时注入四类缺陷, 每类对应一个可被断言的关键词。
+    """迷你技能树。dirty=True 时注入多类缺陷, 每类对应一个可被断言的关键词。
 
     **沙盒必须与真实技能结构双向同步**（1.13.28 立，两轮各踩一次才抽象出来）：
       · 真实有的，沙盒不能缺 —— 缺了会让"干净树"被误判，正例直接 0/1。
@@ -285,6 +357,16 @@ def _sandbox_files(dirty):
     改技能文件结构（增删改名）后，回来同步这棵树。
     """
     demo = 'TIMES = get_opt("--times")\n'
+    # 5) schema 登记: 干净树用官方合法的 python 型 + command 字段(应放行);
+    #    脏树用白名单外类型 magic_check 且不登记(必须被抓)。
+    deps_clean = ('{"dependencies": [{"id": "demo-pkg", "type": "local-tool", "required": false,'
+                  ' "capabilities": ["demo"], "checks": [{"id": "demo-import", "type": "python",'
+                  ' "required": false, "command": "demo_mod"}]}]}')
+    deps_dirty = deps_clean.replace('"type": "python"', '"type": "magic_check"')
+    # 登记节: 干净/脏树都放一份(含已登记标识符), 确保脏树被抓是因为"未登记"而不是"表缺失"
+    maint = ("# 维护本技能\n\n## 已登记的 schema 约定\n\n"
+             "| 约定 | 内容 |\n|---|---|\n"
+             "| `python` 型 check 的 `command` 字段 | 承载 Python 模块名, 验第三方包可导入 |\n")
     if dirty:
         demo += 'print("回归: 38/38 通过")\n'                  # 3a 写死计数
         ev = "references/evidence/missing.kt"                 # 4 证据未随包
@@ -300,6 +382,8 @@ def _sandbox_files(dirty):
         "SKILL.md": "---\nversion: 1.0.0\n---\n" + extra +
                     "证据见 `%s`\nCHANGELOG: %s\n" % (ev, changelog),
         "references/pitfalls.md": _PITFALLS,
+        "references/maintenance.md": maint,
+        "skill-dependencies.json": deps_dirty if dirty else deps_clean,
         "scripts/demo.py": demo,
         "references/evidence/real.kt": "// 占位\n",
         # dirty 时故意与沙盒 SKILL.md 的 1.0.0 不一致：让「版本漂移」走 _meta.json 比对这条
@@ -315,6 +399,7 @@ _DIRTY_MARKERS = [
     ("写死计数", "写死计数"),
     ("版本漂移", "版本漂移"),
     ("证据随包", "证据文件未随包"),
+    ("schema 登记", "未在 maintenance.md"),
 ]
 
 
@@ -342,7 +427,8 @@ def _real_baseline():
     if os.path.isfile(meta_p):
         try:
             import json as _json
-            mv = _json.load(open(meta_p, encoding="utf-8")).get("version")
+            with open(meta_p, encoding="utf-8") as _f:
+                mv = _json.load(_f).get("version")
         except Exception:
             mv = None
     checks.append(("真实 _meta.json 能取到 version", mv is not None, mv or "取不到"))
@@ -429,6 +515,9 @@ def self_test(verbose=True):
 
 
 def main():
+    if "--help" in sys.argv or "-h" in sys.argv:
+        print(__doc__.strip())
+        sys.exit(0)
     if "--self-test" in sys.argv:
         return self_test()
     verbose = "--verbose" in sys.argv
@@ -437,11 +526,12 @@ def main():
     check_cli_args(errors)
     check_hardcoded(errors)
     check_evidence_files(errors)
+    check_dependency_schema(errors)
     print("=" * 62)
-    print("技能自身一致性自检 (悬空引用 / CLI 参数 / 写死计数·版本 / 证据文件随包)")
+    print("技能自身一致性自检 (悬空引用 / CLI 参数 / 写死计数·版本 / 证据文件随包 / schema 登记)")
     print("=" * 62)
     if not errors:
-        print("[OK] 四项检查全部通过")
+        print("[OK] 五项检查全部通过")
         return 0
     for e in errors:
         print("[ERROR] %s" % e)

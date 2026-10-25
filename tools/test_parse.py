@@ -9,8 +9,9 @@
     这是 validate_booksource.py(只查字段完整性) 的必要补充——它查"规则对不对"。
     引擎对齐: XPath(以 / 或 @XPath: 开头)用 lxml 跑; JSOUP 默认规则(@ 层级分隔,
     形如 .类@标签@属性, 是 3.25 真机默认引擎)用 BeautifulSoup 对齐 Jsoup 的 select;
-    其中扩展属性选择器(~=/?= 等 Jsoup 原生操作符 bs4 无法建模)走内置真 Jsoup 通道
-    (scripts/jsoup_eval/, jar + JsoupRuleEval)忠实复刻真机行为, 通道不可用时降级为「需真机验证」;
+    其中扩展属性选择器走内置真 Jsoup 通道(scripts/jsoup_eval/, jar + JsoupRuleEval)
+    忠实复刻真机行为: ~= 是 Jsoup 正则匹配操作符, bs4 无法等价建模; 问号形态则并非操作符——
+    Jsoup 将 ? 解析进属性名, [attr?=val] 恒不命中, 真机同结果; 通道不可用时降级为「需真机验证」;
     JSONPath 用 jsonpath_ng; JS(<js>)标注需真机, 不假通过。
 
 用法:
@@ -134,7 +135,13 @@ def is_jsonpath(expr):
 
 
 def split_chains(expr):
-    """按 Legado 规则分隔符 && 拆成备选/链式规则段(前一段取空才试下一段)。"""
+    """按 Legado 规则分隔符 && 拆成备选/链式规则段(前一段取空才试下一段)。
+
+    非字符串(JSON 里 rule* 误配成数字/对象/数组): 真机 AnalyzeUrl 链同样不成立,
+    本地中性返回空段(调用方按"无结果"继续), 不把类型错误升级成 AttributeError 崩栈。
+    """
+    if not isinstance(expr, str):
+        return []
     return [s.strip() for s in expr.split("&&") if s.strip()]
 
 
@@ -146,7 +153,10 @@ def split_union(locator):
     求值(等价于 XPath 的 |, 但 JsoupXpath 额外支持 || 写法)。lxml 不原生支持 ||,
     直接求值会抛 XPath 异常 → 把本来正确的规则误判成 ERR。这里用「分别求值再合并去重」
     模拟 JsoupXpath 的并集语义, 让本地验证与真机对齐。
+    非字符串误配: 同 split_chains, 中性返回空, 不崩栈。
     """
+    if not isinstance(locator, str):
+        return []
     return [s.strip() for s in locator.split("||") if s.strip()]
 
 
@@ -163,20 +173,33 @@ def _dedup_nodes(nodes):
 
 def _has_inline_js(expr):
     """规则是否含内联 <js> 管道(如 xpath<js>...</js>), 即 <js 不在开头。"""
-    s = (expr or "").strip()
+    if not isinstance(expr, str):
+        return False
+    s = expr.strip()
     return ("<js" in s) and (not s.startswith("<js"))
 
 
 def split_inline_js(expr):
-    """去掉内联 <js>...</js> 管道, 返回前面的 XPath/规则部分(本地可验证部分)。"""
+    """去掉内联 <js>...</js> 管道, 返回前面的 XPath/规则部分(本地可验证部分)。
+
+    无内联 <js> 时返回 (原串剥离, False) 而非截断 —— 否则 idx=-1 会让 expr[:-1]
+    吞掉末字符, 导致前导点告警的"改写为 '%s'"建议值残缺(如 .//a@text 建议成 //a@tex),
+    用户照抄写出坏规则。
+    """
+    if not isinstance(expr, str):
+        return "", False
     idx = expr.find("<js")
+    if idx < 0:
+        return expr.strip(), False
     return expr[:idx].strip(), True
 
 
 def _is_template(expr):
     """Legado 模板占位字面量(如 {{page}} / {{"https://..."}}): 运行时由 App 填充,
     不是 XPath/CSS/正则, 不应作为规则本地验证(否则会 MISS/ERR 误报)。"""
-    s = (expr or "").strip()
+    if not isinstance(expr, str):
+        return False
+    s = expr.strip()
     return ("{{" in s) and ("}}" in s)
 
 
@@ -385,15 +408,21 @@ def eval_rule_nodes(node, expr, relative=False):
     return [], None
 
 
-# Legado 扩展属性选择器(~=/?= 等 Jsoup 原生操作符, 非 Legado 自定义)bs4/soupsieve 无法等价建模:
+# Legado 扩展属性选择器(~=)bs4/soupsieve 无法等价建模:
 # 反编译 AnalyzeByJSoup.getElementsSingle 实证, Legado 对 [attr~=val] 不做任何自定义处理,
 # 直接 temp.select(beforeRule) 委托给 Jsoup 原生引擎。因此唯一忠实做法是调用真 Jsoup 求值,
-# 而非用 Python 硬猜复刻(Jsoup 的 ~= 是正则 OR 构造, 如 [a~=x|y] => \bx|y\b, 复刻必漏)。
+# 而非用 Python 硬猜复刻(Jsoup 的 ~= 是【正则匹配】, jsoup-1.17.2 实测: 无词边界——foobar
+# 也中 ~=foo; | 为正则 OR——[a~=x|y] 双命中; . 为任意字符——[a~=f.o] 中 foo; 复刻必漏)。
+# ⚠ ?= 不是操作符(2026-10-25 审计实证, jsoup-1.17.2 实测可复跑):
+#    Jsoup 把 ? 解析进【属性名】, [attr?=val] 恒不命中、不报错; 反编译坐实 CSS 选择器透传
+#    select(), 故真机同结果——写了等于静默取空。路由正则保留 \? 是让此类规则也走真通道,
+#    拿到与真机一致的恒空, 而非假装它有语义。行为已固化为回归:
+#    evals/jsoup_realdevice_equiv.py 的「幻影操作符?=恒不命中」用例。
 # jar 缺失或 Java 不可用时, 仍优雅降级为 JSOUP_EXT(「需真机验证」), 不假通过、不误报非法。
 JSOUP_EXT = "__JSOUP_EXT_ATTR__"
 _LEGADO_EXT_ATTR = re.compile(r"\[[^\]]*(\~|\?)=\s*[^\]]*\]")
 
-# ---- 真机等价求值通道: 用打包的 org.jsoup 复刻 Legado JSOUP 引擎, 忠实求值 ~=/?= 等规则 ----
+# ---- 真机等价求值通道: 用打包的 org.jsoup 复刻 Legado JSOUP 引擎, 忠实求值 ~= 等规则 ----
 _JSOUP_JAR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "jsoup_eval", "jsoup-1.17.2.jar")
 _JSOUP_HELPER_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "jsoup_eval")
 _JSOUP_READY = None  # None=未探测; True/False 缓存
@@ -539,12 +568,14 @@ def eval_rule(node, expr, relative=False):
 #   - 规则按 @ 拆成层级段, 逐段在上一层结果上 getElementsSingle 收窄。
 #   - getElementsSingle 对每段 beforeRule: 首段为 children/class/text/tag/id 走专用方法,
 #     否则整段当 CSS select(beforeRule)。beforeRule 为空→返回 element.children()。
-#     关键: 对 [attr~=val]/[attr?=val] 等扩展属性选择器**不做任何自定义处理**, 直接
+#     关键: 对 [attr~=val] 等扩展属性选择器**不做任何自定义处理**, 直接
 #     temp.select(beforeRule) 委托 Jsoup 原生引擎 -> bs4/soupsieve 无法等价建模。
+#     ([attr?=val] 同理透传, 但 ?= 并非操作符——Jsoup 把 ? 解析进属性名, 恒不命中, 见 L410。)
 #   - 前缀 - 是"列表倒置"标记(官方文档明载), 仅反转结果顺序, 不影响命中数。
 #   - 方括号 [n]/[-n]/[0:1] 是元素索引, 取第 n 个/范围(本地暂只取末段整体, 不逐索引)。
 # 本地用 BeautifulSoup 对齐 Jsoup 的 select(基本选择器 .class/tag/#id/[attr]/后代/子代 一致);
-# 扩展属性操作符(~=/?=)走内置真 Jsoup 通道(_jsoup_real_eval)忠实求值, 通道不可用时降级 JSOUP_EXT。
+# 扩展属性操作符(~=)走内置真 Jsoup 通道(_jsoup_real_eval)忠实求值, 通道不可用时降级 JSOUP_EXT;
+# 含 ?= 的规则同样走该通道(得到与真机一致的恒空), 但 ?= 不是操作符, 见 L410 注释块。
 
 def detect_mode(expr):
     """按 3.25 真机规则模式判定, 决定用哪套本地引擎。
@@ -723,7 +754,7 @@ def eval_rule_nodes_jsoup(root, expr):
 def eval_rule_jsoup(root, expr):
     """JSOUP 取值层: 返回 (文本列表, err)。最后段 text/html/@attr 决定取值;
     支持 && 备选 / || 并集 / ## 清洗 / 前缀 -。无取值指示符(纯元素)默认取文本。
-    扩展属性选择器(~=/?= 等 Jsoup 原生操作符)走真 Jsoup 通道(_jsoup_real_eval)忠实求值;
+    扩展属性选择器(~= 是 Jsoup 正则匹配操作符)走真 Jsoup 通道(_jsoup_real_eval)忠实求值;
     jar/Java 不可用时降级为 JSOUP_EXT(「需真机验证」), 不误报非法、不假通过。"""
     if not expr or not str(expr).strip():
         return [], EMPTY_RULE
@@ -742,7 +773,7 @@ def eval_rule_jsoup(root, expr):
             try:
                 core, ops = split_regex(branch)
                 core2, _rev = _strip_rule_prefix(core)
-                # 扩展属性选择器(~=/?= 等 Jsoup 原生操作符): bs4 无法等价建模, 走真 Jsoup 通道求值
+                # 扩展属性选择器(~= 正则匹配): bs4 无法等价建模, 走真 Jsoup 通道求值
                 if _LEGADO_EXT_ATTR.search(core2) and _jsoup_engine_available():
                     jvals, jerr = _jsoup_real_eval(str(root), core2)
                     if jerr is None:
@@ -886,7 +917,7 @@ def report_list_hit(label, hits, total, samples, err):
             JS_NOTE_FIELDS.append("%s(:正则规则,需真机)" % label)
             return True
         if err == JSOUP_EXT:
-            print("    %-14s : [需真机验证] Legado 扩展属性选择器(~=/?=)本地 bs4 无法建模, 需 App 实机确认(不代表失败)" % label)
+            print("    %-14s : [需真机验证] Legado 扩展属性选择器(~=)本地 bs4 无法建模, 需 App 实机确认(不代表失败)" % label)
             JS_NOTE_FIELDS.append("%s(扩展属性选择器,需真机)" % label)
             return True
         if err == EMPTY_RULE:
@@ -1031,7 +1062,7 @@ def report_hit(label, res, err):
             JS_NOTE_FIELDS.append("%s(:正则规则,需真机)" % label)
             return True
         if err == JSOUP_EXT:
-            print("    %-14s : [需真机验证] Legado 扩展属性选择器(~=/?=)本地 bs4 无法建模, 需 App 实机确认(不代表失败)" % label)
+            print("    %-14s : [需真机验证] Legado 扩展属性选择器(~=)本地 bs4 无法建模, 需 App 实机确认(不代表失败)" % label)
             JS_NOTE_FIELDS.append("%s(扩展属性选择器,需真机)" % label)
             return True
         if err == EMPTY_RULE:
@@ -1067,6 +1098,12 @@ def report_hit(label, res, err):
 
 
 def _eval_field(k, expr, tree, json_data, soup=None, mode=None):
+    if not isinstance(expr, str):
+        # JSON 里 rule* 误配成数字/对象/数组: 真机 AnalyzeUrl 链同样不成立, 按中性
+        # 跳过(不计失败), 绝不让类型错误升级成 AttributeError 崩栈。
+        print("    %-14s : [配置错误] 规则值不是字符串(%s), App 端同样无法解析, 中性跳过(不计失败)"
+              % (k, type(expr).__name__))
+        return True
     if _is_template(expr):
         print("    %-14s : [模板] {{...}} 占位字面量, 非解析规则, 跳过" % k)
         return True
@@ -1143,7 +1180,7 @@ def check_region(name, region, html_text, json_data):
                     nodes, err = eval_rule_nodes(tree, region[cont_key])
                 if err:
                     if err == JSOUP_EXT:
-                        print("    %-14s : [需真机验证] Legado 扩展属性选择器(~=/?=)本地 bs4 无法建模, 需 App 实机确认" % cont_key)
+                        print("    %-14s : [需真机验证] Legado 扩展属性选择器(~=)本地 bs4 无法建模, 需 App 实机确认" % cont_key)
                         JS_NOTE_FIELDS.append("%s(扩展属性选择器,需真机)" % cont_key)
                     elif err == JS_SKIP:
                         print("    %-14s : [需真机验证] JS 规则, 本地不执行(必须 App 实机确认, 不代表失败)" % cont_key)
@@ -1286,7 +1323,8 @@ def main():
     args = ap.parse_args()
 
     try:
-        src = json.load(open(args.booksource, encoding="utf-8"))
+        with open(args.booksource, encoding="utf-8-sig") as _f:
+            src = json.load(_f)
         if isinstance(src, list):
             # App 导入格式是数组; 取第一个书源验证(多书源文件请拆开或逐个传)
             if not src:
@@ -1300,7 +1338,8 @@ def main():
     json_data = None
     if args.json:
         try:
-            json_data = json.load(open(args.json, encoding="utf-8"))
+            with open(args.json, encoding="utf-8-sig") as _f:
+                json_data = json.load(_f)
         except Exception as e:
             print("无法读取 JSON 样本: %s" % e); sys.exit(2)
 
@@ -1318,7 +1357,8 @@ def main():
         if not p:
             return None
         try:
-            raw = open(p, "rb").read()
+            with open(p, "rb") as _f:
+                raw = _f.read()
         except Exception as e:
             print("无法读取 %s: %s" % (p, e)); return None
         if charset:

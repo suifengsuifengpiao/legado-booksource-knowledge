@@ -29,6 +29,7 @@ import argparse
 import json
 import os
 import shutil
+import sys
 import time
 
 # 系统 chromium 优先(UA 指纹更接近用户真机); 找不到再回退 playwright 自带浏览器。
@@ -122,7 +123,13 @@ def bypass(url, wait_text=None, click_turnstile=True, timeout_ms=45000):
     cookies_list 为 playwright 的 ctx.cookies() 结构(list of dict: name/value/domain/path/expires)。
     cf_passed = 是否成功拿到 cf_clearance(或页面本就不是 CF 挑战页)。
     """
-    from playwright.sync_api import sync_playwright
+    try:
+        from playwright.sync_api import sync_playwright
+    except Exception as e:
+        sys.stderr.write(
+            "[bypass_cf] 未安装 playwright 或浏览器内核, 无法突破 CF 挑战: %s\n"
+            "  安装: pip install playwright && playwright install chromium\n" % e)
+        return "", [], "", False
 
     start = time.time()
     limit = timeout_ms / 1000.0
@@ -244,10 +251,12 @@ def main():
     print("是否拿到cf_clearance: %s" % got_cf)
     print("Cookie清单: %s" % ", ".join(c.get("name", "") for c in cookies))
     if args.out:
-        open(args.out, "w", encoding="utf-8").write(html)
+        with open(args.out, "w", encoding="utf-8") as _f:
+            _f.write(html)
         print("已保存 HTML -> %s" % args.out)
     if args.cookies_out:
-        json.dump(cookies, open(args.cookies_out, "w", encoding="utf-8"), ensure_ascii=False, indent=2)
+        with open(args.cookies_out, "w", encoding="utf-8") as _f:
+            json.dump(cookies, _f, ensure_ascii=False, indent=2)
         print("已保存 Cookie -> %s" % args.cookies_out)
 
 

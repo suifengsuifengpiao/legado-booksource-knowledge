@@ -74,8 +74,12 @@ def load_source(path):
 
 
 def _read_file(p):
-    with open(p, "r", encoding="utf-8", errors="replace") as f:
-        return f.read()
+    try:
+        with open(p, "r", encoding="utf-8-sig", errors="replace") as f:
+            return f.read()
+    except OSError as e:
+        sys.stderr.write("[错误] 无法读取文件 %s: %s\n" % (p, e))
+        sys.exit(2)
 
 
 def _diff(baseline, garbage):

@@ -434,7 +434,8 @@ def main():
     args = ap.parse_args()
 
     try:
-        src = json.load(open(args.booksource, encoding="utf-8"))
+        with open(args.booksource, encoding="utf-8-sig") as _f:
+            src = json.load(_f)
         if isinstance(src, list):
             # App 导入格式是数组; 取第一个书源实测(多书源文件请拆开或逐个传)
             if not src:
@@ -459,7 +460,7 @@ def main():
     sess, backend = build_session(args.impersonate)
     print("[backend] %s" % backend)
 
-    base = src.get("bookSourceUrl", "").rstrip("/")
+    base = str(src.get("bookSourceUrl") or "").rstrip("/")
     timeout = args.timeout
 
     samples = {}  # name -> html path
@@ -510,7 +511,8 @@ def main():
             print("      [CF] 仍是挑战页, 本页 SKIP(架构性拦截, 请改用发现频道/Webview)"); return None
         print("      OK HTTP %s, %d 字节" % (resp.status_code, len(body)))
         p = os.path.join(workdir, name + ".html")
-        open(p, "w", encoding="utf-8").write(body)
+        with open(p, "w", encoding="utf-8") as _f:
+            _f.write(body)
         samples[name] = p
         return body
 
@@ -518,10 +520,14 @@ def main():
     print("\n" + "=" * 50)
     print("步骤1: 字段完整性校验")
     print("=" * 50)
-    vproc = subprocess.run([sys.executable, os.path.join(SCRIPT_DIR, "validate_booksource.py"), args.booksource],
-                           capture_output=True, text=True)
-    print(vproc.stdout)
-    field_ok = (vproc.returncode == 0)
+    try:
+        vproc = subprocess.run([sys.executable, os.path.join(SCRIPT_DIR, "validate_booksource.py"), args.booksource],
+                               capture_output=True, text=True, timeout=120)
+        print(vproc.stdout)
+        field_ok = (vproc.returncode == 0)
+    except subprocess.TimeoutExpired:
+        print("字段校验超时(120s): validate_booksource.py 无响应, 按 FAIL 继续")
+        field_ok = False
 
     # ---- 2) 搜索页 ----
     su = norm_region(src.get("searchUrl"))
@@ -554,7 +560,8 @@ def main():
             if body:
                 print("      OK HTTP %s, %d 字节" % (resp.status_code, len(body)))
                 p = os.path.join(workdir, "search.html")
-                open(p, "w", encoding="utf-8").write(body)
+                with open(p, "w", encoding="utf-8") as _f:
+                    _f.write(body)
                 samples["search"] = p
                 search_html = body
     else:
@@ -589,18 +596,10 @@ def main():
                 print("[search] 检测到 webView 选项(JS 挑战/解密站): 本地 curl 无法跑 JS, 本页 SKIP(请真机验证)")
                 search_html = None
             else:
-                body = fetch_and_save("search", search_url, referer=base, method=method, data=data, charset=search_charset)
-                # 纯URL/对象分支也要处理自建验证页(模拟书源 loginCheckJs 的全局行为)
-                if body and 'encryptedCookieValue' in body and not looks_like_cf(body):
-                    body2 = handle_verification_page(sess, search_url, body)
-                    if body2 and not looks_like_cf(body2):
-                        p = os.path.join(workdir, "search.html")
-                        open(p, "w", encoding="utf-8").write(body2)
-                        samples["search"] = p
-                        search_html = body2
-                    else:
-                        search_html = None
-                        samples.pop("search", None)
+                # fetch_and_save 内部已自行处理"自建验证页(明文cookie)"与 Cloudflare,
+                # 返回时 body 必不含 encryptedCookieValue(否则已在内部 SKIP/重试),
+                # 原 598-607 的重试分支为不可达死代码, 已删除。
+                search_html = fetch_and_save("search", search_url, referer=base, method=method, data=data, charset=search_charset)
 
     # ---- 3) 发现频道首条入口(用于回退取书) ----
     explore_html = None
@@ -716,8 +715,11 @@ def main():
         cmd += ["--toc", samples["toc"]]
     if "content" in samples:
         cmd += ["--content", samples["content"]]
-    tproc = subprocess.run(cmd, capture_output=True, text=True)
-    print(tproc.stdout)
+    try:
+        tproc = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+        print(tproc.stdout)
+    except subprocess.TimeoutExpired:
+        print("解析超时(300s): test_parse.py 无响应, 跳过解析结果")
 
     # ---- 9) 汇总 ----
     print("=" * 50)

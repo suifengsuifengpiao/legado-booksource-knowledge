@@ -8,8 +8,10 @@ import java.util.*;
 
 /**
  * 真机等价求值助手: 用真 org.jsoup 复刻 Legado 3.25 默认 JSOUP 引擎的 `@` 层级语义,
- * 对单条规则求值并返回提取文本。供 Python 校验器在 bs4 无法等价建模的扩展属性选择器
- * (~=/?= 等 Jsoup 原生操作符) 时调用, 保证「校验结果 == 真机」。
+ * 对单条规则求值并返回提取文本。供 Python 校验器在 bs4 无法等价建模时调用:
+ *   ~= : Jsoup 原生语义是【正则匹配】(无词边界), bs4/soupsieve 的 ~= 是 CSS 词包含, 无法等价;
+ *   ?= : 不是操作符——Jsoup 把 ? 解析进【属性名】, [attr?=val] 恒不命中、不报错, 真机同结果。
+ * 两类规则都走真 Jsoup 通道, 保证「校验结果 == 真机」(?= 拿到的是真实的恒空, 而非假装有语义)。
  *
  * 用法: java -cp jsoup-1.17.2.jar:. JsoupRuleEval <html-file> <rule>
  * 输出: 每个提取结果占一行, base64 编码(utf-8), 便于含换行/特殊字符的值安全回传。
@@ -31,7 +33,9 @@ public class JsoupRuleEval {
         if (typ.equals("tag"))   { if (parts.length>1) res.addAll(el.select(parts[1])); return res; }
         if (typ.equals("id"))    { if (parts.length>1) res.addAll(el.select("#"+parts[1])); return res; }
         if (typ.equals("text"))  { if (parts.length>1) res.addAll(el.getElementsContainingOwnText(parts[1])); return res; }
-        // default: 整段当 CSS, 真 Jsoup 原生解析(含未加引号的属性值、~=/?= 等扩展操作符)
+        // default: 整段当 CSS, 真 Jsoup 原生解析(含未加引号的属性值。
+        // ~= 是 Jsoup 正则匹配而非 CSS 词包含;
+        // ?= 非操作符, ? 被解析进属性名, [attr?=val] 恒不命中)
         res.addAll(el.select(before));
         return res;
     }

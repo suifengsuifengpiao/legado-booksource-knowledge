@@ -1,4 +1,4 @@
-# Legado 书源工具链（legado-booksource-debug 技能 v1.14.4）
+# Legado 书源工具链（legado-booksource-debug 技能 v1.14.9）
 
 本地化校验与真机语义对齐工具集。核心原则：**本地不建模的语义如实降级为「需真机验证」，绝不跑出与真机不符的假结果**。
 
@@ -12,7 +12,8 @@
 | `realcheck.py` | 真机等价检查：带/不带 cookie 对比取证 |
 | `bypass_cf.py` | Cloudflare 五秒盾/JS 挑战过法探测 |
 | `webview_probe.py` | webView 站点渲染命中探测 |
-| `js_layer_check.py` | `<js>` 规则 Node 层执行检查 |
+| `js_layer_check.py` | `<js>` 规则 Node 层执行检查；**列表 `<js>` 返回数组类型闸门**（末段纯 `<js>` 返非数组真机 ClassCastException，链式形态 `<js>…</js>选择器` 不适用）；jsLib 共享作用域建模 |
+| `validate_booksource.py` 补充 | 检查 #12「末段纯 `<js>` 列表 + 纯选择器子规则」WARN（真机不解析字符串元素）；空输入口径：0 字节/纯空白文件 exit 2 报错（不静默放行），`[]` 放行 |
 | `reverse_crypto.py` / `reverse_font.py` | 加密参数逆向 / 字体反爬(QueryTTF)还原 |
 | `fetch_page.py` | 页面抓取（UA/编码/重定向处理） |
 | `l0_probe.py` | L0 证伪探针：窄范围快速验证假设 |
@@ -20,7 +21,7 @@
 | `check_environment.py` | 环境/依赖检测（`--capability live-fetch --network`，清单见 `skill-dependencies.json`） |
 | `self_audit.py` | 技能自身一致性审计 |
 | `legado_debug_bridge.py` | 调试桥：与 Legado 调试页日志对接 |
-| `jsoup_eval/JsoupRuleEval.java` | Jsoup 规则 Java 求值器（对齐真机 bookList/chapterList 子规则语义；`elem`/`elemrule` 两种模式） |
+| `jsoup_eval/` | Jsoup 规则 Java 求值器（对齐真机 bookList/chapterList 子规则语义；`elem`/`elemrule` 两种模式）：`JsoupRuleEval.java` 源码 + 已编译 `JsoupRuleEval.class` + 随附 `jsoup-1.17.2.jar`，三者齐备可直接 `java -cp` 跑 |
 
 ## 用法示例
 
@@ -31,9 +32,11 @@ python3 validate_booksource.py 书源.json
 # 环境检测
 python3 check_environment.py --capability live-fetch --network
 
-# Jsoup 规则求值（需 javac + jsoup jar）
-javac -cp jsoup.jar jsoup_eval/JsoupRuleEval.java
-java -cp .:jsoup.jar JsoupRuleEval page.html "tag.a@text"
+# 书源含 JS 就必须跑 JS 层检查（与结构体检两道，缺一不可）
+python3 js_layer_check.py --source 书源.json [--html 夹具.html] [--url URL] [--code 验证码]
+
+# Jsoup 规则求值（jar 已随附）
+java -cp jsoup_eval:jsoup_eval/jsoup-1.17.2.jar JsoupRuleEval page.html "tag.a@text"
 ```
 
 ## 设计红线

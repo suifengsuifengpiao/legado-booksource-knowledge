@@ -227,7 +227,7 @@
 
 - **铁律 25：改跨文件陈述后必须做「一致性扫描」**
   - **现象**：`pitfalls.md` 同一结论两处打架——"重试 200/400/600/800/1000ms 递增" vs "固定 1000ms"、"cookie 只能事后清理" vs 铁律 16「`js` 字段事前可清」，因分多次补写、没回头统一。
-  - **纪律**：改了涉及「节奏/顺序/可否」的陈述（重试节奏、cookie 清理时机、XPath 引擎支持度等），必须用 Grep 扫一遍同类关键词（递增/固定、只能事后/事前可清、变量存取/HTTP 请求），确认无旧主张残留再收工。
+  - **纪律**：改了涉及「节奏/顺序/可否」的陈述（重试节奏、cookie 清理时机、XPath 引擎支持度等），必须用 Grep 扫一遍同类关键词（递增/固定、只能事后/事前可清、变量存取/HTTP 请求），确认无旧主张残留再收工。**扫描范围 = 全部载体文件类型**：1.14.7 订正操作符并称时只扫了 .py/.md，漏掉站外载体 `scripts/jsoup_eval/JsoupRuleEval.java`（代码注释）与 `skill-dependencies.json`（依赖清单）共 4 处，被验证师复审抓出——注释与清单同样是陈述载体，一个都不能少。
   - **落地**：本条目即实例——`pitfalls.md` 的"重试递增 vs 固定 1000ms"矛盾已在上一轮订正，本法固化"改完必扫"；references/maintenance.md「语义部分（脚本抓不到，必须人工过）」清单已显式列入此项。
 
 ### 运行时 try/catch 把 JS 异常直接吐到结果栏（App 内调试补刀）
@@ -460,6 +460,43 @@
    - 目录页同时有两个 `class='p2'` 的 `<ul>`——第一个 `div.info_chapters` 是**真章节**（href 指向 `.html` 章节页），第二个 `div.info_tj` 是**推荐阅读**（href 指向书籍详情页）。若用宽泛的 `//ul[@class='p2']/li`，推荐区的书名会被**当成章节**混进目录（每页 20 条、19 页累加 = 大量非本书内容）。
    - **正确姿势**：先用 `//ul[@class='p2']` 这类选择器在**真实 HTML** 上数一数命中了几组、每组是什么，再用更具体的**祖先容器**限定范围（如 `//div[@class='info_chapters']//ul/li`）。`validate_booksource.py` 虽不能直接判断语义，但「章节名不是预期形态（如不以『第X章』开头）」可作为人工复核信号。
 
+### 真机才暴露的列表规则三坑（mowan.lol 三轮真机翻车实证，2026-10-25）
+
+> 🚨 **铁律 26：列表规则（`bookList`/`chapterList`）的 `<js>` 有三条真机契约，本地校验默认全绿——因为本地用真 Jsoup 求值，比真机宽松。三条全踩过一轮才固化（C-E26 信号累积达阈值的产物）。**
+
+**坑①：末段纯 `<js>` 的列表规则，JS 必须返回数组。**
+v1 返回拼接好的单个 HTML 字符串，真机直接崩：
+
+```
+java.lang.ClassCastException: java.lang.String cannot be cast to java.util.List
+    at AnalyzeRule.getElements(...)
+```
+
+机理（3.25 反编译实证）：末段是纯 `<js>`（无尾部选择器/正则段）时，JS 返回值**直接作为最终列表元素**被 `it as List<Any>` 强转，非数组即 CCE；返回 `null` 更阴——不崩，但**静默空列表**。
+⚠️ **两形态契约，别扩大化**：只有「末段纯 `<js>`」适用数组契约。**链式形态** `<js>...</js>div.x`（JS 返串 + 尾段选择器，58书屋在售源实证）的 JS 输出是后段输入，经 `AnalyzeByJSoup.parse` 的 `Jsoup.parse` 解析成 DOM 供尾部选择器求值，最终 result 是 Elements(List)——此形态返串完全合法。判定工具：`js_layer_check.py` 的 `_is_pure_js_terminal`（规则串以 `<js>...</js>` 收尾、尾部 trim 为空）。
+
+**坑②：真机不把 `<js>` 返回的字符串元素解析成 HTML。**
+v2 改为返回数组后不崩了，但日志「列表大小:255」而书名全空、整列表被丢弃（书籍总数 0）。CSS/JSOUP/XPath 子规则在字符串元素上 100% 取空。
+**证据链（排除法，别跳过）**：先用技能自带真 Jsoup 通道（`JsoupRuleEval`）对同一 HTML 片段求值 `.book-name@text` → 正确返回书名 ⇒ 规则本身合法、排除语法嫌疑 ⇒ 锁定为引擎行为差异（本地真 Jsoup 会顺手把字符串元素解析成 HTML，所以本地系统性假绿）。
+**解法**：`bookList`/`chapterList` 返回**每条的 JSON 字符串**（`JSON.stringify(item)`），子规则用 `<js>` 解析该 JSON 字符串。⚠️ **子规则怎么拿到解析 helper，只有两条合法通道**（3.25 dex 实证：`AnalyzeRule.evalJS` 每次新建 `ScriptBindings` 独立求值，证据链见 `apk-method-inventory.md`「`<js>` 求值作用域」）：
+   - **通道 A（推荐，官方共享机制）**：把 helper（如 `_p`）放进书源 **`jsLib`** 字段（「共用 JS 库（函数共用）」，见 `booksource-schema.md`）——真机把它经 shareScope 原型链注入**每个** `<js>` 的求值作用域，bookList 与所有子规则都能引用；
+   - **通道 B（零依赖）**：每个子规则内联自含，如 `"name": "<js>(function(){var d=JSON.parse(result);return d.name||'';})()</js>"`（子规则的 `result` 就是上一步传来的元素字符串）。
+   - 🔴 **不存在的通道**：helper 定义在 `bookList` 的 `<js>` 里（哪怕是 IIFE 内）**不可能**被子规则引用——真机每个 `<js>` 都是全新顶层作用域，顶层声明不跨段可见，IIFE 内声明更是函数局部。旧文档曾把「bookList 定义 `_p` + 子规则 `<js>_p(result).xxx</js>`」定为正确形态，**那是错的**：真机子规则必然 `ReferenceError: _p is not defined` → 取名空（与坑②同症，2026-10-25 P2-1 dex 坐实并修正；`js_layer_check.py --self-test` 标本 14/15/16 三连钉住：IIFE 引用必 FAIL、jsLib 共享 PASS、子规则自含 PASS）。
+工具落点：`validate_booksource.py` 对「末段纯 `<js>` + 纯选择器子规则」出 WARN（只 WARN 不 ERROR：真机实证 + JsoupRuleEval 排除法结论，尚未取 dex 描述符级证据）；`js_layer_check.py` 管坑①的类型闸门。两者互补，都要跑。
+
+**坑③：混合聚合站的 `type` 不过滤，短剧/听书/漫画会污染阅读。**
+mowan 是四态混合站，实测 type 分布 `novel 1053 / video 620（短剧）/ audio 120（听书）/ image 36（漫画）`。短剧正文的 `data.content` 是 **mp4 URL**、`paragraphs` 为空——Legado 是文字阅读器，本就无法阅读，表现为「有书名、点开正文空白」。
+**解法**：`bookList` 的 `<js>` 里 `if(items[i].type!=='novel')continue;` 在搜索层过滤；`content` 兜底排除 `http(s)://` 开头的 URL 防 mp4 漏网。站点形态详见 `site-patterns.md`「混合聚合站」。
+
+**顺带：业务限额码 ≠ 频控（40306 判读原则）。**
+mowan 匿名身份有「累计 10 章」阅读限额，超出后正文接口返回：
+
+```json
+{"code":40306,"message":"您已经阅读了 10 章节了，继续阅读请登录哦"}
+```
+
+被误判过频控（差点去加重试/换 UA，全是无效功）。**错误码判读必须先读 `message` 文本再定性**：文案明示「继续阅读请登录」就是**站点业务规则**，解法是 `enabledCookieJar:true` + 在 App 书源管理点「登录」打开站点登录账号，不是加重试、不是换 UA、不是降级 webView。频控的特征是**连接层失败/429/质询页**，不是业务 JSON 里的明确文案。
+
 ### 可选：用 Legado 同款引擎本地复现
 
 #### 可选：用 Legado 同款引擎本地复现（"脚本 OK / 真机不行"时的终审手段）
@@ -485,8 +522,6 @@ Maven 中央仓拉不动时走阿里云镜像：`https://maven.aliyun.com/reposi
 
 > ⚠️ **jadx 反编译输出不可全信**（曾漏显 `body()` 方法导致误判 TypeError 根因）。
 > **定性 API 行为请以 `javap -c -p <class>` 字节码为准**，反编译只用来定位调用点。
-
----
 
 ## 🔴 新坑补遗（2026-10-24 档案蒸馏，20 天 17 站实战）
 

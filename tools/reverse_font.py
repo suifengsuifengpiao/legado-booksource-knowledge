@@ -168,7 +168,8 @@ def extract_fonts(html, base, out_dir):
             if r.status_code == 200 and len(r.content) < 5_000_000:
                 fn = "font_%d" % len(out)
                 p = os.path.join(out_dir, fn)
-                open(p, "wb").write(r.content)
+                with open(p, "wb") as _f:
+                    _f.write(r.content)
                 out.append((absu, p))
         except Exception:
             pass
@@ -184,7 +185,8 @@ def diagnose(target, out=None):
         html = _decode_html(r.content)
         base = target
     else:
-        html = open(target, encoding="utf-8", errors="ignore").read()
+        with open(target, encoding="utf-8", errors="ignore") as _f:
+            html = _f.read()
         base = ""
 
     tmp = tempfile.mkdtemp(prefix="legado_font_")
@@ -227,7 +229,8 @@ def diagnose(target, out=None):
         "verdict": verdict,
     }
     if out:
-        json.dump(report, open(out, "w", encoding="utf-8"), ensure_ascii=False, indent=2)
+        with open(out, "w", encoding="utf-8") as _f:
+            json.dump(report, _f, ensure_ascii=False, indent=2)
     return report
 
 

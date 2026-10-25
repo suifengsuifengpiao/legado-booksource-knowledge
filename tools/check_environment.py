@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Any
 
 VERSION_RE = re.compile(r"(?<![0-9])(0|[1-9][0-9]{0,5})(?:\.(0|[1-9][0-9]{0,5}))?(?:\.(0|[1-9][0-9]{0,5}))?", re.ASCII)
-VALID_TYPES = {"cli", "cli_probe", "env", "file", "json_field", "mcp", "mcp_probe", "auth_probe", "python", "python_import", "url"}
+VALID_TYPES = {"cli", "cli_probe", "env", "file", "json_field", "mcp", "mcp_probe", "auth_probe", "python", "url"}
 PROBE_REASON_CODES = {"ok", "auth_expired_or_invalid", "permission_denied", "quota_or_rate_limit", "service_error", "network_or_timeout", "version_incompatible", "configuration_invalid", "mcp_not_registered", "probe_failed"}
 EVIDENCE_LABELS = {"已验证", "部分验证", "推断", "未验证"}
 SETUP_OUTPUT_FIELDS = {
@@ -59,7 +59,7 @@ def filtered_setup(setup: Any) -> dict[str, Any]:
 def validate_manifest(manifest: dict[str, Any]) -> None:
     top_allowed = {"schema_version", "capabilities", "dependencies", "functional_degradations"}
     dependency_allowed = {"id", "type", "required", "auth_type", "capabilities", "checks", "setup", "degradation"}
-    check_allowed = {"id", "type", "required", "target", "command", "min_version", "name", "path", "field", "module", "server", "url", "method", "expected_status"}
+    check_allowed = {"id", "type", "required", "target", "command", "min_version", "name", "path", "field", "server", "url", "method", "expected_status"}
     setup_allowed = {"official_home_url", "official_docs_url", "download_url", "login_url", "credential_url", "console_path", "scopes", "credential_storage", "steps", "verify", "rotate_or_revoke", "security", "verified_at", "applies_to_version"}
     degradation_allowed = {"capability", "trigger", "fallback", "user_input", "limitations", "evidence_label", "recovery", "stop_condition"}
     if set(manifest) - top_allowed:
@@ -129,10 +129,11 @@ def validate_manifest(manifest: dict[str, Any]) -> None:
                 command = str(check.get("command", ""))
                 if not safe_cli_name(command) or "version_args" in check:
                     raise ValueError(f"依赖 {dependency_id} 的 CLI 检查只能确认安全命令名是否存在")
-            if check.get("type") == "python_import":
-                module = str(check.get("module", ""))
-                if not re.fullmatch(r"[A-Za-z_][\w]*(\.[A-Za-z_][\w]*)*", module):
-                    raise ValueError(f"依赖 {dependency_id} 的 python_import 检查缺少合法的 module 字段")
+            if check.get("type") == "python":
+                # command 字段承载模块名(如 lxml.html), 语义约定见 maintenance.md 登记节
+                module = str(check.get("command", "")).strip()
+                if module and not re.fullmatch(r"[A-Za-z_][\w]*(\.[A-Za-z_][\w]*)*", module):
+                    raise ValueError(f"依赖 {dependency_id} 的 python 检查 command 字段(模块名)不合法")
             if check.get("min_version") and parse_version(str(check["min_version"])) is None:
                 raise ValueError(f"依赖 {dependency_id} 的 min_version 无效")
             if any(field in check for field in ("auth_env", "auth_header", "auth_scheme")):
@@ -298,21 +299,22 @@ def check_item(dependency_id: str, item: dict[str, Any], *, allow_network: bool,
         return result
 
     if check_type == "python":
+        # 语义约定(已在 references/maintenance.md「已登记的 schema 约定」登记):
+        # 带 command 字段 = 验该 Python 第三方包可导入(command 值即模块名, 如 lxml.html) ——
+        # 只验解释器版本会让未安装的包也报 ready(死配置); 不带 command = 官方语义,
+        # 验解释器版本下限(min_version)。第三方包依赖走前者, python-runtime 走后者。
+        module = str(item.get("command", "")).strip()
+        if module:
+            try:
+                importlib.import_module(module)
+                result.update(status="ready", reason_code="ok", detail=f"Python 模块 {module} 可导入")
+            except Exception as exc:  # ImportError 及依赖缺失引发的次生异常都算不可用
+                result.update(status="missing", reason_code="module_missing", detail=f"Python 模块 {module} 不可导入: {exc}")
+            return result
         minimum = parse_version(str(item.get("min_version", "")))
         current = sys.version_info[:3]
         ready = minimum is None or current >= minimum
         result.update(status="ready" if ready else "unavailable", reason_code="ok" if ready else "version_incompatible", detail=f"Python {current[0]}.{current[1]}.{current[2]}；最低要求 {item.get('min_version', '未指定')}")
-        return result
-
-    if check_type == "python_import":
-        # Python 包依赖必须验"包本身可导入", 不能只验 Python 版本 —— 后者让未安装的包
-        # 也报 ready(死配置)。lxml/curl_cffi/bs4/jsonpath_ng/fontTools/playwright 走这里。
-        module = str(item.get("module", ""))
-        try:
-            importlib.import_module(module)
-            result.update(status="ready", reason_code="ok", detail=f"Python 模块 {module} 可导入")
-        except Exception as exc:  # ImportError 及依赖缺失引发的次生异常都算不可用
-            result.update(status="missing", reason_code="module_missing", detail=f"Python 模块 {module} 不可导入: {exc}")
         return result
 
     if check_type == "cli":
