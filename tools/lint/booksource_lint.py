@@ -35,7 +35,13 @@ booksource_lint.py —— AI 书源调试工具（独立工具，不依赖任何
       --json api.json                                     # 给 JSONPath 规则用的 JSON 样本
   python3 booksource_lint.py -                            # 从 stdin 读
   python3 booksource_lint.py <书源.json> --strict          # WARN 也判失败(exit 1)
-  python3 booksource_lint.py --self-test                   # 内置正/反例标本, 全过 exit 0
+  python3 booksource_lint.py --self-test                   # 内置正/反例标本 + 资产可用性, 全过 exit 0
+
+资产目录(真引擎所在)按以下顺序探测，可用环境变量覆盖:
+  $BOOKSOURCE_LINT_ASSETS > <脚本目录>/assets > <脚本目录>/booksource_lint_assets
+资产缺失时**不再静默退化**: 报告头「能力探测」会列出每类资产的路径与 md5，
+缺失项落 ASSET-MISSING WARN，XPath 走 lxml 近似时落 DYN-DEGRADED WARN。
+--self-test 覆盖资产可用性，资产不全时自检失败(exit 1)。
 
 报告分级:
   [ERROR] 会导致解析失败/取空/静默丢弃的真实问题(必须修)
@@ -56,14 +62,48 @@ import shutil
 import base64
 import random
 import atexit
+import hashlib
 from urllib.parse import quote, urljoin
 
 import requests  # 真实抓取层（按书源配置真连真抓）
 
+# ----------------------------------------------------------------------------
+# 0. 资产目录定位（G1：目录名自适应）
+#    收编进知识库时资产目录由 booksource_lint_assets 改名为 assets，代码里硬编码
+#    旧目录名会让 5 类资产（jsoup jar / 桥接 class / jxpath / jayway / js_eval.js /
+#    login_check.js）全部落空 —— 真引擎静默退化成 lxml 近似与"JS 段取空"，而报告
+#    一声不响。这里改为「环境变量 > assets > booksource_lint_assets」自适应探测；
+#    找不到返回 None，由 capability_probe() 上报 ASSET-MISSING（禁止静默降级）。
+# ----------------------------------------------------------------------------
+_ASSETS_DIRNAME_CANDIDATES = ("assets", "booksource_lint_assets")
+
+
+def _assets_dir():
+    """定位资产目录。
+
+    优先级: 环境变量 $BOOKSOURCE_LINT_ASSETS > <脚本目录>/assets >
+    <脚本目录>/booksource_lint_assets（旧部署位兼容）。
+    全部找不到时返回 None —— 调用方必须显式上报，不得静默降级。
+
+    Returns:
+        str | None: 资产目录绝对路径。
+    """
+    env = os.environ.get("BOOKSOURCE_LINT_ASSETS")
+    if env and os.path.isdir(env):
+        return os.path.abspath(env)
+    here = os.path.dirname(os.path.abspath(__file__))
+    for name in _ASSETS_DIRNAME_CANDIDATES:
+        p = os.path.join(here, name)
+        if os.path.isdir(p):
+            return p
+    return None
+
+
+_ASSETS_DIR = _assets_dir()
+
 # jayway JsonPath 兼容引擎（APK 反编译同构，对齐真机 jayway 2.9.x 行为）。
 # 纯 Python、无外部依赖，始终可用；jsonpath_ng 仅作最终兜底。
-_ASSETS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "booksource_lint_assets")
-if _ASSETS_DIR not in sys.path:
+if _ASSETS_DIR and _ASSETS_DIR not in sys.path:
     sys.path.insert(0, _ASSETS_DIR)
 try:
     from jayway_compat import (
@@ -113,9 +153,22 @@ FIELD_OWNERSHIP = {
 }
 
 # 死字段: (区域, 字段) 写了不执行（3.25 反编译零消费点）
+# 3.25 中 ruleContent.replaceRegex 为活字段（dex 实证: webBook.w.b -> AnalyzeRule.getString 消费）。
+# 不再列为死字段；写法校验改由 check_replaceregex_form 负责（必须以 ## 开头）。
 DEAD_FIELDS = [
-    ("ruleContent", "replaceRegex"),            # 铁律 5/10: 正文净化写不进去
+    # 当前无其它死字段；新增须附 dex/真机证据
 ]
+
+# === java.* 真值清单（P1-1 全量比对用）===
+# 来源: dex 取证(legado_app_3.25.apk, md5 7c5ab9dfa751f58b8ef0220ae001d619, vcode 15604)，
+# 由 java_api_dex_whitelist.json 内联。书源 JS 中 `java.*` 的合法绑定对象 = AnalyzeRule/AnalyzeUrl 并集 = 136 个真机 API。
+# rss_only 两个(addBook/searchBook)仅 RSS 源绑定(RssJsExtensions)，书源 JS 调用必 ReferenceError。
+_JAVA_API_BOOKSOURCE = {"HMacBase64", "HMacHex", "aesBase64DecodeToByteArray", "aesBase64DecodeToString", "aesDecodeArgsBase64Str", "aesDecodeToByteArray", "aesDecodeToString", "aesEncodeArgsBase64Str", "aesEncodeToBase64ByteArray", "aesEncodeToBase64String", "aesEncodeToByteArray", "aesEncodeToString", "ajax", "ajaxAll", "androidId", "base64Decode", "base64DecodeToByteArray", "base64Encode", "bytesToStr", "cacheFile", "connect", "createAsymmetricCrypto", "createSign", "createSymmetricCrypto", "deleteFile", "desBase64DecodeToString", "desDecodeToString", "desEncodeToBase64String", "desEncodeToString", "digestBase64Str", "digestHex", "downloadFile", "encodeURI", "evalJS", "get", "get7zByteArrayContent", "get7zStringContent", "getBaseUrl", "getBody", "getBook", "getByteArray", "getByteArrayAwait", "getChapter", "getContent", "getCookie", "getElement", "getElements", "getFile", "getGlideUrl", "getHeaderMap", "getInputStream", "getInputStreamAwait", "getKey", "getMUrl", "getMediaItem", "getNextChapterUrl", "getPage", "getRarByteArrayContent", "getRarStringContent", "getRedirectUrl", "getResponse", "getResponseAwait", "getRuleData", "getRuleUrl", "getServerID", "getSource", "getSpeakSpeed", "getSpeakText", "getStrResponse", "getStrResponseAwait", "getString", "getStringList", "getTxtInFolder", "getType", "getUrl", "getUserAgent", "getVerificationCode", "getWebViewUA", "getZipByteArrayContent", "getZipStringContent", "head", "hexDecodeToByteArray", "hexDecodeToString", "hexEncodeToString", "htmlFormat", "importScript", "initUrl", "isPost", "log", "logType", "longToast", "md5Encode", "md5Encode16", "post", "put", "queryBase64TTF", "queryTTF", "randomUUID", "reGetBook", "readFile", "readTxtFile", "refreshBook", "refreshTocUrl", "replaceFont", "s2t", "setBaseUrl", "setChapter", "setContent", "setCoroutineContext", "setNextChapterUrl", "setRedirectUrl", "setRuleData", "splitSourceRule", "splitSourceRuleCacheString", "startBrowser", "startBrowserAwait", "strToBytes", "t2s", "timeFormat", "timeFormatUTC", "toNumChapter", "toURL", "toast", "tripleDESDecodeArgsBase64Str", "tripleDESDecodeStr", "tripleDESEncodeArgsBase64Str", "tripleDESEncodeBase64Str", "un7zFile", "unArchiveFile", "unrarFile", "unzipFile", "upload", "utf8ToGbk", "webView", "webViewGetOverrideUrl", "webViewGetSource"}
+_JAVA_API_DOC = {"HMacBase64", "HMacHex", "ajax", "ajaxAll", "androidId", "base64Decode", "base64DecodeToByteArray", "base64Encode", "bytesToStr", "cacheFile", "connect", "createAsymmetricCrypto", "createSign", "createSymmetricCrypto", "digestBase64Str", "digestHex", "encodeURI", "get", "getElement", "getElements", "getString", "getStringList", "getVerificationCode", "getWebViewUA", "head", "hexDecodeToByteArray", "hexDecodeToString", "hexEncodeToString", "importScript", "log", "logType", "longToast", "md5Encode", "md5Encode16", "post", "put", "randomUUID", "reGetBook", "refreshTocUrl", "s2t", "setContent", "startBrowser", "startBrowserAwait", "strToBytes", "t2s", "timeFormatUTC", "toURL", "toast", "webView", "webViewGetOverrideUrl", "webViewGetSource"}          # 官方 jsHelp.md 记载的子集(51)
+_JAVA_API_RSS_ONLY = {"addBook", "searchBook"}
+_JAVA_UNEMU_NAMES = {"webView", "webViewGetSource", "webViewGetOverrideUrl", "startBrowser", "startBrowserAwait", "getVerificationCode", "queryTTF", "queryBase64TTF", "replaceFont", "createSign", "createAsymmetricCrypto", "get7zStringContent", "get7zByteArrayContent", "getRarStringContent", "getRarByteArrayContent", "un7zFile", "unrarFile"}
+_JAVA_CALL_RE = re.compile(r'\bjava\.([A-Za-z_$][\w$]*)')
+_JAVA_ASSIGN_RE = re.compile(r'\bjava\.([A-Za-z_$][\w$]*)\s*=')
 
 # 等待字段: 正确名 vs 会被 Gson 静默丢弃的错名（铁律 7/183）
 WAIT_FIELD_RIGHT = "webWait"
@@ -237,17 +290,15 @@ def _collect_js(src):
 
 
 def _collect_regex(src):
-    """收集所有需编译校验的正则: 各区域 replaceRegex(格式 find##replace) / sourceRegex。"""
+    """收集所有需编译校验的正则: 仅各区域 sourceRegex。
+
+    replaceRegex 的正则校验由其专属 check_replaceregex_form 负责(须 ## 格式且段1
+    可编译, 报 REPLACEREGEX-REGEX); 此处若再收集 replaceRegex 会造成同一处重复报告,
+    故只保留 sourceRegex。
+    """
     regs = []
     for region, fld, val in _iter_region_rules(src):
-        if fld == "replaceRegex" and val:
-            # 多组以 \n 分隔，每组 find##replace
-            for grp in val.split("\n"):
-                if "##" in grp:
-                    regs.append(("%s.replaceRegex" % region, grp.split("##", 1)[0]))
-                else:
-                    regs.append(("%s.replaceRegex" % region, grp))
-        elif fld == "sourceRegex" and val:
+        if fld == "sourceRegex" and val:
             regs.append(("%s.sourceRegex" % region, val))
     return regs
 
@@ -294,6 +345,86 @@ def check_region_completeness(src, raw, rep):
                           "在 %s 内补上 %s（行 ~%d）" % (region, "/".join(missing), line))
 
 
+# 子规则（exploreUrl 数组内嵌 ruleExplore）的字段完整性口径 —— 与技能侧
+# validate_booksource.py 对齐（位置串同为 ruleExplore#N，便于两边逐条对表）:
+#   name / bookUrl 缺 → ERROR：真机取不到书名/详情链接，导入即炸
+#   bookList 缺     → WARN ：真机规则直接作用于整页，单条目源合法；整页多条目时必错
+EXPLORE_SUB_ERROR_FIELDS = ("name", "bookUrl")
+EXPLORE_SUB_WARN_FIELDS = ("bookList",)
+
+
+def _explore_entries(src):
+    """展开 exploreUrl → [(idx, region_dict, own)]，兼容 字符串化JSON / list / dict / 纯文本。
+
+    与技能侧 get_explore_regions() 同构: 序号从 0 起；条目未内嵌 ruleExplore 时
+    **回退顶层 ruleExplore**（own=False，顶层缺失归 REGION-REQ / EXPLORE-NO-RULE，
+    不在此重复报）；url 为空的条目是分类标题行，真机跳过，不计入。
+    纯文本形态（"标题::URL&&…"）无内嵌子规则，返回 []。
+    """
+    raw = src.get("exploreUrl")
+    if not raw or not str(raw).strip():
+        return []
+    ev = raw
+    if isinstance(ev, str):
+        try:
+            ev = json.loads(ev)
+        except (ValueError, TypeError):
+            return []
+    top = _region(src, "ruleExplore")
+    if isinstance(ev, dict):
+        entries = [ev]
+    elif isinstance(ev, list):
+        entries = ev
+    else:
+        return []
+    out = []
+    for i, e in enumerate(entries):
+        if not isinstance(e, dict):
+            continue
+        if not str(e.get("url") or "").strip():
+            continue
+        own = isinstance(e.get("ruleExplore"), dict)
+        r = e.get("ruleExplore") if own else top
+        if isinstance(r, dict):
+            out.append((i, r, own))
+    return out
+
+
+def check_explore_subrules(src, raw, rep):
+    """exploreUrl 数组里**每条**内嵌的 ruleExplore 也要字段完整。
+
+    顶层 ruleExplore 完整 ≠ 每条子规则都完整：数组第 N 条可内嵌自己的 ruleExplore，
+    真机按该条自己的规则解析。此前只查顶层，一导入就炸的子规则字段缺失全部漏检。
+    """
+    eu = str(src.get("exploreUrl") or "").strip()
+    if eu and eu[0] in "[{":
+        try:
+            json.loads(eu)
+        except (ValueError, TypeError) as e:
+            line = locate_line(raw, "exploreUrl")
+            rep.warn("EXPLORE-URL-PARSE",
+                     "`exploreUrl` 形如 JSON(%s) 但解析失败: %s —— 子规则检查无法展开（不静默跳过）"
+                     % (eu[0], e),
+                     "修正 exploreUrl 的 JSON 转义（行 ~%d）" % line)
+            return
+    for idx, r, own in _explore_entries(src):
+        if not own:
+            continue      # 回退顶层规则的条目由 check_region_completeness 负责
+        line = locate_line(raw, "exploreUrl")
+        for fld in EXPLORE_SUB_ERROR_FIELDS:
+            if not r.get(fld):
+                rep.error("EXPLORE-SUB-REQ",
+                          "`ruleExplore#%d`（exploreUrl 第 %d 条）缺子字段 `%s` —— 真机取不到该值，"
+                          "进入该分类即解析失败" % (idx, idx, fld),
+                          "在该条 exploreUrl 内嵌的 ruleExplore 补 %s（行 ~%d）" % (fld, line))
+        for fld in EXPLORE_SUB_WARN_FIELDS:
+            if not r.get(fld):
+                rep.warn("EXPLORE-SUB-WARN",
+                         "`ruleExplore#%d`（exploreUrl 第 %d 条）缺子字段 `%s` —— 规则将作用于整页，"
+                         "整页含多个条目时会取错" % (idx, idx, fld),
+                         "在该条 exploreUrl 内嵌的 ruleExplore 补 %s（行 ~%d）" % (fld, line))
+
+
 def check_field_ownership(src, raw, rep):
     for fld, allowed in FIELD_OWNERSHIP.items():
         for region in ("ruleSearch", "ruleExplore", "ruleBookInfo", "ruleToc", "ruleContent"):
@@ -315,6 +446,34 @@ def check_dead_fields(src, raw, rep):
             rep.warn("DEAD-FIELD",
                      "`%s.%s` 在 3.25 是死字段（反编译零消费点，写了不执行）" % (region, fld),
                      "正文净化改用 content 的 `<js>` 或 `##` 管道（行 ~%d）" % line)
+
+
+def check_replaceregex_form(src, raw, rep):
+    """P1-2 修正: ruleContent.replaceRegex 在 3.25 是活字段, 但必须 `##` 开头(裸正则=被当规则求值->正文取空->抛内容为空)。"""
+    if src.get("replaceRegex"):
+        rep.warn("REPLACEREGEX-TOP",
+                 "书源顶层 `replaceRegex` 不是 3.25 书源字段(BookSource 实体无此键), 会被 Gson 静默丢弃",
+                 "改写进 ruleContent.replaceRegex 或 content 行内 ##")
+    rc = _region(src, "ruleContent")
+    if not isinstance(rc, dict):
+        return
+    rr = rc.get("replaceRegex")
+    if not isinstance(rr, str) or not rr.strip():
+        return
+    if not rr.lstrip().startswith("##"):
+        rep.error("REPLACEREGEX-FORM",
+                  "ruleContent.replaceRegex 必须以 `##` 开头(写成裸正则会被当规则求值, 正文被取空并抛「内容为空」)。写法: `##正则##替换`",
+                  "改为 `##正则##替换`(行 ~%d)" % locate_line(raw, "replaceRegex"))
+        return
+    _seg = rr.split("##")
+    _pat = _seg[1] if len(_seg) > 1 else ""
+    if _pat:
+        try:
+            re.compile(_pat)
+        except re.error as e:
+            rep.error("REPLACEREGEX-REGEX",
+                      "ruleContent.replaceRegex 正则段无法编译: %s" % e,
+                      "修正 `##正则##替换` 中的正则段(行 ~%d)" % locate_line(raw, "replaceRegex"))
 
 
 def check_wait_field(src, raw, rep):
@@ -455,36 +614,42 @@ def check_js_syntax(src, raw, rep):
                       "`%s` 里出现单参 `java.get(url)` —— 这不是 HTTP 请求，3.25 会静默返回空串"
                       % where,
                       "改成双参 `java.get(url, header)` 或用 `java.connect`（行 ~%d）" % line)
-        # 注: 真机 StrResponse 同时提供 body()(:193) 与 getBody()(:234), 二者同义 —— 均合法, 不告警
-        # 工具无法真机模拟的 java API（GUI/TTF 反爬/非对称签名/7z-rar 解压/繁简未打包）
-        _UNEMU = [
-            ("webView", "GUI 渲染，工具无头环境不执行（动态检查会原样跳过）"),
-            ("webViewGetSource", "GUI 渲染，工具无头环境不执行"),
-            ("webViewGetOverrideUrl", "GUI 渲染，工具无头环境不执行"),
-            ("startBrowser", "GUI 跳转，工具无头环境不执行"),
-            ("startBrowserAwait", "GUI 跳转并等待，工具无头环境不执行"),
-            ("getVerificationCode", "验证码 GUI，工具无法处理（动态检查返回空）"),
-            ("queryTTF", "TTF 字体反爬，工具未实现（动态检查返回空）"),
-            ("queryBase64TTF", "TTF 字体反爬，工具未实现"),
-            ("replaceFont", "TTF 字体替换，工具无 TTF 数据（动态检查原样返回）"),
-            ("createSign", "非对称签名，工具未对齐（签名算法未实证）"),
-            ("createAsymmetricCrypto", "非对称签名，工具未对齐（签名算法未实证）"),
-            ("get7zStringContent", "7z 解压，环境无 7z CLI，工具返回空"),
-            ("get7zByteArrayContent", "7z 解压，环境无 7z CLI，工具返回空"),
-            ("getRarStringContent", "rar 解压，环境无 rar 解压，工具返回空"),
-            ("getRarByteArrayContent", "rar 解压，环境无 rar 解压，工具返回空"),
-            ("un7zFile", "7z 解压，环境无 7z CLI，工具返回空"),
-            ("unrarFile", "rar 解压，环境无 rar 解压，工具返回空"),
-        ]
-        for _name, _why in _UNEMU:
-            if re.search(r'java\.%s\(' % re.escape(_name), code):
-                rep.warn("JAVA-UNEMU",
-                         "`%s` 用到 `java.%s` —— %s" % (where, _name, _why),
-                         "动态检查结果对该 API 不可信；真机可正常运行（行 ~%d）"
-                         % (locate_line(raw, "loginCheckJs") or locate_line(raw, "webJs")))
-        # Legado 模板 {{...}} 真机先求值替换再执行 JS —— 语法检查须先替换为占位符，
-        # 否则把合法模板误报为语法错误（话本小说 ruleToc.updateTime 实证误报）
+        # Legado 模板 {{...}} 真机先求值替换再执行 JS —— API/语法检查须先替换为占位符,
+        # 否则把合法模板(java.{{x}})误报; 话本小说 ruleToc.updateTime 实证
         check_code = re.sub(r'\{\{[\s\S]*?\}\}', '0', code)
+        # ---- java.* 调用 vs dex 真值清单全量比对(P1-1) ----
+        # 先收集片段内 "java.X =" 赋值(用户自定义函数), 避免误杀
+        _assigned = set(_JAVA_ASSIGN_RE.findall(check_code))
+        for _m in _JAVA_CALL_RE.finditer(check_code):
+            _name = _m.group(1)
+            if _name in _assigned:
+                continue
+            if _name in _JAVA_API_RSS_ONLY:
+                rep.error("JAVA-RSS-ONLY",
+                          "`%s` 调用 `java.%s` —— 该 API 仅 RSS 源绑定(RssJsExtensions), 书源 JS 调用必 ReferenceError"
+                          % (where, _name),
+                          "书源 JS 不可用此 API（行 ~%d）"
+                          % (locate_line(raw, "loginCheckJs") or locate_line(raw, "webJs")))
+            elif _name in _JAVA_UNEMU_NAMES:
+                rep.warn("JAVA-UNEMU",
+                         "`%s` 用到 `java.%s` —— 工具未仿真(动态结果不可信), 真机可正常运行"
+                         % (where, _name),
+                         "动态检查结果对该 API 不可信（行 ~%d）"
+                         % (locate_line(raw, "loginCheckJs") or locate_line(raw, "webJs")))
+            elif _name in _JAVA_API_BOOKSOURCE:
+                if _name not in _JAVA_API_DOC:
+                    rep.info("JAVA-UNDOC",
+                             "`%s` 调用 `java.%s` —— dex 实证存在但官方 jsHelp 未记载"
+                             % (where, _name),
+                             "真机可用; 用法可查 dex（行 ~%d）"
+                             % (locate_line(raw, "loginCheckJs") or locate_line(raw, "webJs")))
+                # 在清单且官方有记载 → 合法, 不报
+            else:
+                rep.warn("JAVA-UNKNOWN",
+                         "`%s` 调用 `java.%s` —— 不在 3.25 书源 java.* 真值清单(136 个 dex 实证 API)中"
+                         % (where, _name),
+                         "真机可能 ReferenceError; 若确为 jsLib/片段内挂载函数可忽略（行 ~%d）"
+                         % (locate_line(raw, "loginCheckJs") or locate_line(raw, "webJs")))
         with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False, encoding="utf-8") as tf:
             tf.write(check_code)
             tmp = tf.name
@@ -633,21 +798,35 @@ def check_cookie_jar(src, raw, rep):
 # 6. 动态检查（XPath 真机 JsoupXpath / Jsoup 真 jar / JSONPath jayway 同构，按需）
 # ----------------------------------------------------------------------------
 def _find_jsoup_jar(script_dir):
-    candidates = [
-        os.path.join(script_dir, "booksource_lint_assets", "jsoup-1.17.2.jar"),
-        os.path.join(script_dir, "booksource_lint_assets", "JsoupRuleEval.class"),
-    ]
-    jar = candidates[0]
-    klass = candidates[1]
-    if os.path.isfile(jar) and os.path.isfile(klass):
-        return jar, os.path.dirname(klass)
-    # 退化: 找 skill 目录
-    for base in (os.path.expanduser("~/.workbuddy/skills/legado-booksource-debug/scripts/jsoup_eval"),
-                 "/workspace/legado-booksource-debug/scripts/jsoup_eval"):
-        j = os.path.join(base, "jsoup-1.17.2.jar")
-        k = os.path.join(base, "JsoupRuleEval.class")
-        if os.path.isfile(j) and os.path.isfile(k):
-            return j, base
+    """定位 jsoup 真引擎（jar 与桥接 class 必须同目录、同源）。
+
+    搜索顺序:
+      1. 自身资产目录（_assets_dir(): assets / booksource_lint_assets / $BOOKSOURCE_LINT_ASSETS）
+      2. 同仓 tools/jsoup_eval（仓库内共享发布位）
+      3. 技能侧 scripts/jsoup_eval（最后的借用兜底；借用会由 capability_probe 标出来源 md5）
+
+    Args:
+        script_dir: 脚本所在目录（用于定位同仓 tools/jsoup_eval）。
+
+    Returns:
+        tuple: (jar 路径, 桥接类所在目录)；找不到时 (None, None)。
+    """
+    base_dir = os.path.abspath(script_dir or os.path.dirname(os.path.abspath(__file__)))
+    candidates = []
+    ad = _assets_dir()
+    if ad:
+        candidates.append(ad)
+    candidates.append(os.path.join(os.path.dirname(base_dir), "jsoup_eval"))
+    candidates.append(os.path.expanduser(
+        "~/.workbuddy/skills/legado-booksource-debug/scripts/jsoup_eval"))
+    candidates.append("/workspace/legado-booksource-debug/scripts/jsoup_eval")
+    for base in candidates:
+        if not base:
+            continue
+        jar = os.path.join(base, "jsoup-1.17.2.jar")
+        klass = os.path.join(base, "JsoupRuleEval.class")
+        if os.path.isfile(jar) and os.path.isfile(klass):
+            return jar, base
     return None, None
 
 
@@ -787,6 +966,15 @@ def _strip_xpath_prefix(s):
     return re.sub(r"(?i)^@xpath:", "", str(s), count=1)
 
 
+def _strip_json_prefix(s):
+    """剥离 @Json: 前缀(ignoreCase, 必须带冒号)，与 _strip_xpath_prefix 对称。
+
+    G1 修复让 jayway 真引擎重新可用后，此前"整类跳过"掩盖的前缀未剥离问题暴露：
+    `@Json:$.a.b` 会连前缀一起喂给 jayway → 必然 InvalidPath。真机同样是先剥前缀再求值。
+    """
+    return re.sub(r"(?i)^@json:", "", str(s), count=1)
+
+
 def _strip_inline_options(rule):
     """剥掉规则尾部行内选项, 对齐 AnalyzeUrl UrlOption 层:
     a@href,{"webView":true} -> a@href。仅当 ',{' 之后整体是合法 JSON 对象才剥,
@@ -848,9 +1036,14 @@ _XPATH_DEPS = ["JsoupXpath-2.5.5.jar", "jsoup-1.15.3.jar", "commons-lang3-3.12.0
 
 
 def _find_xpath_jar(script_dir):
-    """定位真机 XPath 引擎(XPathBench.jar + 依赖)。返回目录路径或 None。"""
-    base = os.path.join(script_dir, "booksource_lint_assets", "jxpath")
-    if os.path.isfile(os.path.join(base, "XPathBench.jar")):
+    """定位真机 XPath 引擎(XPathBench.jar + 依赖)。返回目录路径或 None。
+
+    搜索顺序: 自身资产目录/jxpath（_assets_dir() 自适应）> 技能侧 scripts/xpath_eval。
+    返回 None 时调用方必须报 DYN-DEGRADED（结论退化为 lxml 近似，禁止静默）。
+    """
+    ad = _assets_dir()
+    base = os.path.join(ad, "jxpath") if ad else None
+    if base and os.path.isfile(os.path.join(base, "XPathBench.jar")):
         return base
     for alt in (os.path.expanduser("~/.workbuddy/skills/legado-booksource-debug/scripts/xpath_eval"),
                 "/workspace/legado-booksource-debug/scripts/xpath_eval"):
@@ -1001,9 +1194,11 @@ def _jp_strip_braces(rule):
 
 def _jp_find(rule, data):
     """对齐真机 AnalyzeByJSonPath.getStringList：返回字符串列表。
-    优先 jayway 同构引擎（真机对齐），兜底 jsonpath_ng。"""
+    优先 jayway 同构引擎（真机对齐），兜底 jsonpath_ng。
+    入口统一剥 @Json: 前缀（真机 splitSourceRule 先剥前缀再交给引擎）。"""
     if not rule:
         return []
+    rule = _strip_json_prefix(rule)
     if _HAVE_JAYWAY:
         try:
             return _jp_get_string_list(rule, data)
@@ -1019,6 +1214,7 @@ def _jp_find(rule, data):
 def _jp_compile(rule):
     """JSONPath 语法预校验：剥离 {…} 内联块与 &&/||/%% 组合符后逐段编译。
     优先 jayway（真机对齐），兜底 jsonpath_ng 整体编译。语法错误抛 InvalidPath。"""
+    rule = _strip_json_prefix(rule)
     if _HAVE_JAYWAY:
         stripped = _jp_strip_braces(rule)
         for seg in _jp_split_rule(stripped, ("&&", "||", "%%")):
@@ -1048,8 +1244,10 @@ def _eval_list_seg(html_file, seg, jar_dir, mode=None):
                 text = f.read()
         except Exception:
             return []
-        out = _eval_js(code, text, None, list_mode=True)
+        out = _eval_js(code, text, None, list_mode=True, where="列表规则 JS 段")
         if out.startswith("<<JS_ERROR:"):
+            # G2-1: 不再静默吞错 —— 失败已登记进 _JS_FAILURES，
+            # 由 _drain_js_failures() 在检查结束时上报 DYN-JS-FAIL。
             return []
         try:
             parsed = json.loads(out)
@@ -1386,11 +1584,56 @@ def _substitute_vars(rule, vars_map):
 
 
 def _js_eval_script_path():
-    return os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                        "booksource_lint_assets", "js_eval.js")
+    """node 侧 JS 求值桥脚本路径（资产目录自适应；无资产目录时返回不存在的路径，
+    由 _drain_js_failures 上报，禁止静默）。"""
+    ad = _assets_dir()
+    if not ad:
+        return os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", "js_eval.js")
+    return os.path.join(ad, "js_eval.js")
 
 
-def _eval_js(code, result, vars_map, src=None, list_mode=False):
+# ---- JS 求值失败登记（G2-1：禁止静默 return []）-----------------------------
+# _eval_js 失败时把 (位置, 代码摘要, 原因) 记进来；检查结束时由 _drain_js_failures(rep)
+# 统一上报 DYN-JS-FAIL。这样 6 个调用点无需逐个改造签名也能全部留痕。
+_JS_FAILURES = []
+
+
+def _record_js_failure(where, code, err):
+    """登记一次 JS 求值失败（同一 位置+片段+原因 只记一次，避免刷屏）。"""
+    snippet = str(code).strip().replace("\n", " ")[:80]
+    key = (where or "JS 段", snippet, str(err)[:120])
+    if key not in _JS_FAILURES:
+        _JS_FAILURES.append(key)
+
+
+def _drain_js_failures(rep, limit=5):
+    """把本轮累积的 JS 求值失败上报为 DYN-JS-FAIL，并清空登记。返回上报条数。
+
+    环境缺失（无 node / 无 js_eval.js）→ WARN：整类未求值属工具环境问题；
+    环境正常仍失败 → ERROR：该 JS 段在引擎里真的抛错，本条结果不可信。
+    """
+    if not _JS_FAILURES:
+        return 0
+    env_missing = (shutil.which("node") is None) or (not os.path.isfile(_js_eval_script_path()))
+    total = len(_JS_FAILURES)
+    for where, snippet, err in _JS_FAILURES[:limit]:
+        msg = ("<js>/@js: 段求值失败[%s]: %s —— 该段结果不可信（真机可能正常，也可能同样抛错）"
+               % (where, err))
+        if env_missing:
+            fix = ("JS 求值环境不可用（node 缺失或 js_eval.js 不在资产目录）—— 所有 <js>/@js: 段"
+                   "**整类未求值**；把 assets/ 与脚本放在一起、或用 $BOOKSOURCE_LINT_ASSETS 指定后重跑")
+            rep.warn("DYN-JS-FAIL", msg, fix)
+        else:
+            fix = "检查该 JS 片段语法与依赖的 java.* API（片段: %s）" % (snippet[:60] or "（空）")
+            rep.error("DYN-JS-FAIL", msg, fix)
+    if total > limit:
+        rep.warn("DYN-JS-FAIL", "另有 %d 处 <js>/@js: 段求值失败（多为同因），未逐条列出"
+                 % (total - limit), "先修上面列出的前 %d 处后重跑" % limit)
+    del _JS_FAILURES[:]
+    return min(total, limit)
+
+
+def _eval_js(code, result, vars_map, src=None, list_mode=False, where=""):
     """用 node 执行 <js> 片段, 对齐 App 的 Rhino evalJS。
     真机绑定(AnalyzeRule.smali:2427/2502 实证): result=上一段结果(多值 "\\n" 拼接的字符串),
     src=AnalyzeRule.content(整页源码), 另有 java/source/baseUrl/book/cookie/cache 等。
@@ -1408,10 +1651,18 @@ def _eval_js(code, result, vars_map, src=None, list_mode=False):
                            capture_output=True, text=True, timeout=20)
         if r.returncode != 0:
             tail = [l for l in r.stderr.strip().splitlines() if l.strip()][-1:]
-            return "<<JS_ERROR:%s>>" % (tail[0] if tail else "node 异常")
+            err = tail[0] if tail else "node 异常"
+            _record_js_failure(where, code, err)
+            return "<<JS_ERROR:%s>>" % err
         out = r.stdout.strip()
+        if out.startswith("<<JS_ERROR"):
+            # js_eval.js 内部 catch（JS 运行时异常）以 rc=0 + 标记串回传 —— 这是最常见的
+            # 失败形态，同样必须留痕，否则又是一次"静默取空"。
+            _record_js_failure(where, code,
+                               out.strip("<>").replace("JS_ERROR:", "").strip() or "JS 运行时异常")
         return out if out != "" else ""
     except Exception as e:  # noqa
+        _record_js_failure(where, code, e)
         return "<<JS_ERROR:%s>>" % e
 
 
@@ -1652,6 +1903,28 @@ def _eval_seg(seg, ctx, mode=None):
     return out if ok else []
 
 
+# 降级状态（G2：本轮运行是否走了近似引擎）。供 _dyn_hit 给命中行打「近似」标记。
+_DEGRADE_STATE = {"xpath": False, "jsonpath": False}
+
+# XPath 近似只报一次，避免每条规则刷屏
+_XPATH_DEGRADED_WARNED = False
+
+
+def _warn_xpath_degraded_once(rep):
+    """真 JsoupXpath 不可用时报 DYN-DEGRADED（一次），声明结论为 lxml 近似。"""
+    global _XPATH_DEGRADED_WARNED
+    if _XPATH_DEGRADED_WARNED:
+        return
+    _XPATH_DEGRADED_WARNED = True
+    rep.warn("DYN-DEGRADED",
+             "真 JsoupXpath 引擎不可用（未找到 jxpath/XPathBench.jar；当前资产目录: %s）—— "
+             "本轮所有 XPath 结论均为 **lxml XPath 1.0 近似**：非 seimicrawler 语法、"
+             "不做表格包裹预处理、无 <?xml 切 xmlParser，可能与真机结果不一致"
+             % (_assets_dir() or "未找到"),
+             "把 assets/ 目录与 booksource_lint.py 放在一起，或用 $BOOKSOURCE_LINT_ASSETS "
+             "指定资产目录后重跑")
+
+
 def dynamic_check(src, raw, rep, samples):
     html = samples.get("html")
     s_html = samples.get("search_html")
@@ -1679,10 +1952,15 @@ def dynamic_check(src, raw, rep, samples):
     jsonpath_ok = _HAVE_JAYWAY  # jayway 同构引擎纯 Python 无外部依赖，始终可用
     xpath_ok = _find_xpath_jar(os.path.dirname(os.path.abspath(__file__))) is not None
 
+    # G2: 降级状态进全局，供命中行打「近似」标记
+    _DEGRADE_STATE["xpath"] = bool(lxml_ok and not xpath_ok)
+    _DEGRADE_STATE["jsonpath"] = not jsonpath_ok
+
     if not (html or s_html or bi_html or toc_html or con_html or js_json):
         # 无样本: 仅做语法编译校验
         rep.info("DYN-SKIP", "无页面/JSON 样本，动态模式只做规则语法编译校验（给 --html/--json 可做实跑）")
         _dynamic_syntax_only(src, raw, rep, lxml_ok, jsonpath_ok, jar, jar_dir)
+        _drain_js_failures(rep)
         return
 
     # 非解析规则字段(URL 模板/JS 代码): 真机不经过 AnalyzeRule, 动态检查跳过
@@ -1719,7 +1997,13 @@ def dynamic_check(src, raw, rep, samples):
             if not js_json:
                 continue
             if not jsonpath_ok:
-                rep.info("DYN-JP-SKIP", "`%s.%s` 是 JSONPath 但 jayway 兼容引擎不可用，跳过动态" % (region, fld))
+                # G2: INFO → WARN，且口径按实测修正 —— 不是"降级到 jsonpath_ng"，
+                # 而是整类 JSONPath 规则根本不做动态检查（上游 jsonpath_ok 闸门拦死）。
+                rep.warn("DYN-JP-SKIP",
+                         "`%s.%s` 是 JSONPath 但 jayway 兼容引擎不可用 —— **本条整类不做动态检查**"
+                         "（不是降级到 jsonpath_ng：两者与 jayway 2.9.x 语义有差异，故直接跳过）"
+                         % (region, fld),
+                         "把 assets/ 与脚本放在一起，或用 $BOOKSOURCE_LINT_ASSETS 指定资产目录")
                 continue
             _dyn_jsonpath(js_json, main, region, fld, raw, rep, parts)
         else:
@@ -1729,6 +2013,8 @@ def dynamic_check(src, raw, rep, samples):
                 if not xpath_ok and not lxml_ok:
                     rep.info("DYN-XP-SKIP", "`%s.%s` 是 XPath 但缺真机引擎且缺 lxml，跳过" % (region, fld))
                     continue
+                if not xpath_ok:
+                    _warn_xpath_degraded_once(rep)   # G2: 走 lxml 近似必须留痕
                 _dyn_xpath(page, main, region, fld, raw, rep, parts)
             elif kind0 == "regex":
                 _dyn_regex(page, main, region, fld, raw, rep, parts, charset=src.get("charset") or "utf-8")
@@ -1739,12 +2025,23 @@ def dynamic_check(src, raw, rep, samples):
                     continue
                 _dyn_jsoup(jar_dir, page, main, region, fld, raw, rep, parts)
 
+    # G2-1: 本轮累积的 <js>/@js: 求值失败统一上报（不再静默 return []）
+    _drain_js_failures(rep)
+
 
 def _dynamic_syntax_only(src, raw, rep, lxml_ok, jsonpath_ok, jar, jar_dir):
     """无样本时, 仅编译校验规则语法能否被引擎接受。"""
     SKIP_FIELDS = {"tocUrl", "nextTocUrl", "nextContentUrl", "searchUrl",
                    "exploreUrl", "ruleFindUrl", "webJs", "preUpdateJs",
                    "formatJs", "loginCheckJs"}
+    # G2: 语法校验阶段同样不许静默退化
+    if not jsonpath_ok:
+        rep.warn("DYN-JP-SKIP",
+                 "jayway 兼容引擎不可用 —— JSONPath 规则**整类不做语法校验**"
+                 "（不是降级到 jsonpath_ng，见 DYN-JP-SKIP 说明）",
+                 "把 assets/ 与脚本放在一起，或用 $BOOKSOURCE_LINT_ASSETS 指定资产目录")
+    if _find_xpath_jar(os.path.dirname(os.path.abspath(__file__))) is None and lxml_ok:
+        _warn_xpath_degraded_once(rep)
     for region, fld, val in _iter_region_rules(src):
         rule = str(val).strip()
         if not rule or rule in ("##",):
@@ -1817,7 +2114,8 @@ def _dyn_xpath(page, rule, region, fld, raw, rep, parts=None):
                  % (region, fld, "(替换后)" if parts and len(parts) > 1 and parts[1] else ""),
                  "核对样本页结构与 ## 替换段（行 ~%d）" % line)
     else:
-        _dyn_hit(region, fld, raw, rep, res, elem=(fld in ("bookList", "chapterList")))
+        _dyn_hit(region, fld, raw, rep, res, elem=(fld in ("bookList", "chapterList")),
+                 note=("lxml 近似" if _DEGRADE_STATE["xpath"] else ""))
 
 
 def _dyn_regex(page, rule, region, fld, raw, rep, parts=None, charset="utf-8"):
@@ -1908,22 +2206,13 @@ def _dyn_seg_eval(page, js_json, jar_dir, seg, kind, elem, charset="utf-8"):
                 data = json.load(f)
             return (_jp_find(seg, data), None, None)
         if kind == "xpath":
-            import lxml.etree
-            tree = lxml.etree.parse(page, lxml.etree.HTMLParser(encoding="utf-8"))
-            res = tree.xpath(_strip_xpath_prefix(seg))
-            if elem:
-                out = [r if isinstance(r, str) else lxml.etree.tostring(
-                    r, encoding="unicode", method="html") for r in res]
-            else:
-                out = []
-                for r in res:
-                    if isinstance(r, str):
-                        out.append(r)
-                    elif hasattr(r, "itertext"):
-                        out.append("".join(r.itertext()).strip())
-                    else:
-                        out.append(str(r))
-            return out, None, None
+            # 组合段里的 XPath 也必须走真 JsoupXpath（此前这里硬编码 lxml，
+            # 即便真引擎可用也走近似 —— 同类静默退化）。传 None 让 _run_xpath
+            # 自行定位 jxpath 目录；无真引擎时它内部退回 lxml，由 DYN-DEGRADED 留痕。
+            ok, res = _run_xpath(page, _strip_xpath_prefix(seg))
+            if not ok:
+                return [], str(res), "DYN-XPATH-SYN"
+            return res, None, None
         if kind == "regex":
             with open(page, encoding=charset, errors="replace") as f:
                 text = f.read()
@@ -1947,12 +2236,14 @@ def _dyn_apply(items, parts):
     return _apply_replace(items, [parts[0], parts[1], parts[2] if len(parts) > 2 else ""])
 
 
-def _dyn_hit(region, fld, raw, rep, items, elem=False):
-    """命中上报(对齐 App 调试面板: 每字段显示取到的条数与样例)。"""
+def _dyn_hit(region, fld, raw, rep, items, elem=False, note=""):
+    """命中上报(对齐 App 调试面板: 每字段显示取到的条数与样例)。
+    note 非空时（如"lxml 近似"）打进命中行，让读者当场看到结论的置信度。"""
     line = locate_line(raw, fld, "")
     sample = " | ".join(x[:60].replace("\n", " ") for x in items[:3]) if items else "（空）"
-    rep.info("DYN-HIT", "`%s.%s` 命中 %d 条%s, 样例: %s"
-             % (region, fld, len(items), "（元素）" if elem else "", sample),
+    rep.info("DYN-HIT", "`%s.%s` 命中 %d 条%s%s, 样例: %s"
+             % (region, fld, len(items), "（元素）" if elem else "",
+                ("（%s）" % note) if note else "", sample),
              "规则在样本页验证通过（行 ~%d）" % line)
 
 
@@ -1992,14 +2283,15 @@ def _dyn_jsonpath(js_json, rule, region, fld, raw, rep, parts=None):
                   "检查样本 JSON 文件（行 ~%d）" % line)
         return
     # 语法预校验（对齐真机：jayway 不接受的语法真机亦不接受）；组合符/内联块属 Legado 语法，已剥离
+    jp_rule = _strip_json_prefix(rule)      # 真机先剥 @Json: 前缀再交给引擎
     try:
-        _jp_compile(rule)
+        _jp_compile(jp_rule)
     except Exception as e:  # noqa
         line = locate_line(raw, fld, rule[:40])
         rep.error("DYN-JP-SYN", "`%s.%s` JSONPath 语法引擎不接受: %s" % (region, fld, e),
                   "修正 JSONPath 语法（行 ~%d）" % line)
         return
-    res = _jp_find(rule, data)
+    res = _jp_find(jp_rule, data)
     if parts:
         res = _dyn_apply(res, parts)
     if not res:
@@ -2114,8 +2406,122 @@ def fetch(url, src, method="GET", body=None, referer=None, timeout=25, charset=N
 
 # ---- loginCheckJs 模拟执行（对齐 AnalyzeUrl.evalJS + okhttp cookieJar） ----
 def _js_asset(name):
-    return os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                        "booksource_lint_assets", name)
+    """node 侧资产脚本路径（login_check.js 等），资产目录自适应。"""
+    ad = _assets_dir()
+    if not ad:
+        return os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", name)
+    return os.path.join(ad, name)
+
+
+# ----------------------------------------------------------------------------
+# 6.5 资产/引擎能力探测（G2：让"哪层真跑了、哪层是近似"在报告里可见）
+#    修复前：资产目录名失配 → 五类资产全部落空 → XPath 静默退化 lxml、JS 段静默取空，
+#    而 --self-test 只跑静态层照样报"通过"。这里把每类资产的可用性与来源（路径 + md5）
+#    打进报告头，缺失项落 ASSET-MISSING WARN。
+# ----------------------------------------------------------------------------
+_ASSET_PROBE_SPEC = (
+    # (key, 说明, 类型 file/dir, 相对路径, 受影响的层)
+    ("jsoup_jar",   "Jsoup 真 jar 1.17.2",      "file", "jsoup-1.17.2.jar",    "DYN/LIVE"),
+    ("jsoup_class", "Jsoup 桥接类 JsoupRuleEval", "file", "JsoupRuleEval.class", "DYN/LIVE"),
+    ("jxpath",      "JsoupXpath 真引擎 jxpath",  "dir",  "jxpath",              "DYN-XPath"),
+    ("jayway",      "JSONPath jayway 同构引擎",  "file", "jayway_compat.py",    "DYN-JSONPath"),
+    ("js_eval",     "JS 求值桥 js_eval.js",     "file", "js_eval.js",          "DYN/LIVE-JS"),
+    ("login_check", "loginCheckJs 通道",        "file", "login_check.js",      "LIVE"),
+)
+
+
+def _file_md5(path):
+    """算文件 md5（资产溯源用）；读不到返回空串。"""
+    try:
+        h = hashlib.md5()
+        with open(path, "rb") as f:
+            for chunk in iter(lambda: f.read(65536), b""):
+                h.update(chunk)
+        return h.hexdigest()
+    except Exception:  # noqa
+        return ""
+
+
+def capability_probe():
+    """探测各引擎资产的可用性与来源（路径 + md5 前 12 位）。
+
+    Returns:
+        dict: {"assets_dir": str|None, "items": [{key, desc, layer, ok, path, md5}],
+               "ok_all": bool, "missing": [key]}
+    """
+    here = os.path.dirname(os.path.abspath(__file__))
+    ad = _assets_dir()
+    jar, jar_dir = _find_jsoup_jar(here)
+    xp_dir = _find_xpath_jar(here)
+    items = []
+    for key, desc, mode, rel, layer in _ASSET_PROBE_SPEC:
+        path = ""
+        if key == "jsoup_jar":
+            ok = bool(jar)
+            path = jar or ""
+        elif key == "jsoup_class":
+            ok = bool(jar_dir) and os.path.isfile(os.path.join(jar_dir, "JsoupRuleEval.class"))
+            path = os.path.join(jar_dir, "JsoupRuleEval.class") if ok else ""
+        elif key == "jxpath":
+            ok = bool(xp_dir)
+            path = xp_dir or ""
+        elif key == "jayway":
+            ok = bool(_HAVE_JAYWAY)
+            path = os.path.join(ad, "jayway_compat.py") if (ok and ad) else ""
+        else:
+            p = os.path.join(ad, rel) if ad else ""
+            ok = bool(p) and os.path.isfile(p)
+            path = p if ok else ""
+        digest = ""
+        if ok and path:
+            target = os.path.join(path, "XPathBench.jar") if mode == "dir" else path
+            digest = _file_md5(target)
+        items.append({"key": key, "desc": desc, "layer": layer, "ok": bool(ok),
+                      "path": path, "md5": digest})
+    missing = [i["key"] for i in items if not i["ok"]]
+    return {"assets_dir": ad, "items": items, "ok_all": not missing, "missing": missing}
+
+
+def add_asset_missing_warns(cap, rep):
+    """把缺失资产写成 ASSET-MISSING WARN 条目（静态/动态报告里都要可见）。"""
+    if rep is None or not cap.get("missing"):
+        return 0
+    n = 0
+    for it in cap["items"]:
+        if it["ok"]:
+            continue
+        rep.warn("ASSET-MISSING",
+                 "资产 `%s` 不可用 → %s 层结论为近似或整类不检查（当前资产目录: %s）"
+                 % (it["desc"], it["layer"], cap["assets_dir"] or "未找到"),
+                 "把 assets/ 目录与 booksource_lint.py 放在一起，或用环境变量 "
+                 "$BOOKSOURCE_LINT_ASSETS 指向资产目录")
+        n += 1
+    return n
+
+
+def report_capabilities(cap=None, rep=None):
+    """把能力探测结果打进报告头；缺失项同时落 ASSET-MISSING WARN（可见降级）。
+
+    Args:
+        cap: capability_probe() 结果；None 时现算。
+        rep: 传入则把缺失资产写成 WARN 条目。
+
+    Returns:
+        dict: capability_probe() 的结果。
+    """
+    if cap is None:
+        cap = capability_probe()
+    print("能力探测（本次真实生效的引擎）:")
+    print("  资产目录: %s" % (cap["assets_dir"] or "未找到（可用 $BOOKSOURCE_LINT_ASSETS 指定）"))
+    for it in cap["items"]:
+        flag = "✅" if it["ok"] else "❌"
+        loc = ("%s  md5=%s" % (it["path"], it["md5"][:12])) if it["ok"] else "缺失"
+        print("  %s %-26s %-14s %s" % (flag, it["desc"], "[" + it["layer"] + "]", loc))
+    if cap["missing"]:
+        print("  ⚠️  缺失资产: %s —— 对应层的结论为「近似」或「整类不检查」，"
+              "见下方 ASSET-MISSING / DYN-DEGRADED" % ", ".join(cap["missing"]))
+    add_asset_missing_warns(cap, rep)
+    return cap
 
 
 def _session_cookie_str(base_url):
@@ -3079,8 +3485,10 @@ def run_checks(src, raw, rep, dynamic, samples):
     if not isinstance(src, dict):
         return
     check_region_completeness(src, raw, rep)
+    check_explore_subrules(src, raw, rep)     # P2-1: exploreUrl 数组内嵌子规则也要完整
     check_field_ownership(src, raw, rep)
     check_dead_fields(src, raw, rep)
+    check_replaceregex_form(src, raw, rep)    # P1-2: ruleContent.replaceRegex 须 ## 开头; 顶层 replaceRegex 无效
     check_wait_field(src, raw, rep)
     check_regex_syntax(src, raw, rep)
     check_book_url_pattern(src, raw, rep)
@@ -3150,7 +3558,7 @@ GOOD_SRC = {
 
 BAD_SRC = {
     "bookSourceName": "测试源-坏", "bookSourceUrl": "not-a-url",
-    "ruleSearch": {"bookList": "##", "name": "//h3"},   # 缺 bookUrl
+    "ruleSearch": {"bookList": "##", "name": "//h3", "sourceRegex": "([坏"},   # 缺 bookUrl + sourceRegex 语法错
     "ruleBookInfo": {"name": "//h1"},
     "ruleToc": {"chapterList": "##", "chapterName": "//li"},  # 缺 chapterUrl
     "ruleContent": {
@@ -3166,20 +3574,40 @@ BAD_SRC = {
 
 
 def self_test():
+    """内置正/反例自检。
+
+    修复前只调 run_checks(dynamic=False, samples={}) —— 纯静态层，对资产/引擎可用性
+    零覆盖，于是"五类资产全失联"的情况下照样打印"结果: 通过"；且阈值 >=6 而 need
+    去重后只有 7 项，漏掉一类仍能通过。现在:
+      1) 先跑 capability_probe()，资产缺任一 → 自检失败（并明确列出缺什么）；
+      2) 阈值改为全中(len(need))，不再允许漏一类。
+    """
+    print("自检: 资产/引擎能力")
+    cap = report_capabilities()
     rep = Report()
     run_checks(GOOD_SRC, json.dumps(GOOD_SRC), rep, False, {})
     good_err = len(rep.errors)
     rep2 = Report()
     run_checks(BAD_SRC, json.dumps(BAD_SRC), rep2, False, {})
     codes = {i[1] for i in rep2.items}
-    need = {"REGION-REQ", "REGION-REQ", "REGEX", "CONCURRENT", "NEXT-TAIL",
+    need = {"REGION-REQ", "REGEX", "REPLACEREGEX-FORM", "CONCURRENT", "NEXT-TAIL",
             "JAVA-GET", "WAIT-FIELD", "URL"}
     caught = need & codes
-    ok = (good_err == 0) and len(caught) >= 6
+    missed = sorted(need - caught)
+    ok = (good_err == 0) and not missed
     print("自检: 好源 ERROR=%d (应=0)" % good_err)
     print("自检: 坏源 抓到 %d/%d 类关键问题" % (len(caught), len(need)))
     print("  命中: %s" % ", ".join(sorted(caught)))
-    print("  未命中: %s" % ", ".join(sorted(need - caught)) or "无")
+    print("  未命中: %s" % (", ".join(missed) if missed else "无"))
+    if cap["missing"]:
+        print("自检: 资产 %d/%d 就位，缺失: %s"
+              % (len(cap["items"]) - len(cap["missing"]), len(cap["items"]),
+                 ", ".join(cap["missing"])))
+        print("  ❌ DYN/LIVE 层能力不全（静态层不受影响）—— 补上 assets/ 目录，"
+              "或用 $BOOKSOURCE_LINT_ASSETS 指定资产目录后重跑自检")
+        ok = False
+    else:
+        print("自检: 资产 %d/%d 全部就位" % (len(cap["items"]), len(cap["items"])))
     print("结果: %s" % ("通过" if ok else "失败"))
     return 0 if ok else 1
 
@@ -3225,10 +3653,13 @@ def main(argv=None):
 
     rep = Report()
     print("🔧 AI 书源调试工具  v1.0  (反编译 Legado 3.25 实证)")
+    # G2: 报告头声明本次真实生效的引擎（含来源路径与 md5），缺失项落 ASSET-MISSING WARN
+    cap = report_capabilities(rep=rep)
     if isinstance(src, list):
         print("[INFO] 检测到书源组（%d 条），逐条检查前 3 条" % len(src))
         for i, s in enumerate(src[:3]):
             r2 = Report()
+            add_asset_missing_warns(cap, r2)   # 每条子报告也要带上资产缺失告警
             run_checks(s, json.dumps(s), r2, args.dynamic, samples)
             print("\n--- 书源 #%d (%s) ---" % (i + 1, s.get("bookSourceName", "?")))
             print_report(r2, args.path)
@@ -3251,6 +3682,9 @@ def main(argv=None):
         print("=" * 70)
         live_debug(src, raw, rep, args.keyword or "",
                    browser=args.browser, no_browser=args.no_browser, explore=args.explore)
+
+    # G2-1: LIVE 链路里累积的 <js>/@js: 求值失败统一上报（不再静默）
+    _drain_js_failures(rep)
 
     # 报告只打印一次（合并静态 + 链路结果）
     print_report(rep, args.path)
