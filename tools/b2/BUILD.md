@@ -140,12 +140,14 @@ javac -cp "$(bash build-cp.sh)" -d /tmp /tmp/T.java && java -cp "$(bash build-cp
 | `src` | 请求返回的源码 | 内容 |
 | `title` / `nextChapterUrl` | 章节标题 / 下一章 URL | 空串 |
 | `cookie` / `cache` / `book` / `chapter` | 对应对象 | null（**存在**，不是 undefined） |
-| `java` | 当前类扩展（见 `JavaShim`） | 垫片 |
+| `java` | 当前类扩展（真机即 `AnalyzeRule` 自身，此时**已 setContent(当前页)**） | `JavaShim`；js 分支已对 `AnalyzeRule` 做 `setContent(当前内容)` |
 
 两条铁律：
 
 1. **名字必须存在**。真机无值时为 `null`；"不存在"是 `ReferenceError`，而书源普遍写 `''+result`、`result || ''`，一崩就是整条规则失败。
 2. **`result` 初值 = 当前内容**。证据：黄金屋 `ruleToc.nextTocUrl = @js:(function(){var h=''+result,u=''+baseUrl,...` —— 它拿 `result` 去正则匹配目录页 HTML 找"下一页"。若按 null 处理，`''+null` = `"null"`，永远匹配不到。
+3. **`java.getString(rule)` 依赖 `setContent`**。真机里 `java` 就是 `AnalyzeRule` 本身，且求值时已 `setContent(当前页)`；harness 必须同样先 `setContent(当前内容)`，否则 `java.getString('#x@href')` 会**静默返回空**（不报错，比报错更危险——会误判"规则没问题"）。
+   > 2026-10-26 实证：猫扑 `nextContentUrl = @js:java.getString('#pb_next@href')`，补 setContent 前恒为空，补后返回 `/1360294/105767659/2.html`，与真机 `/737/22729/2.html` 同形态。
 
 ---
 
@@ -243,6 +245,8 @@ unshare -n bash run.sh 2>&1 | grep -o '{"engine".*'
 | `MissingResourceException: Can't find bundle for base name org.mozilla.javascript.resources.Messages` | **dex2jar 丢了 Rhino 的非 class 资源** | 跑 `make-rhino-res.sh` 生成 `rhino-resources.jar`，确认它在 classpath 里（§3.5） |
 | `NoClassDefFoundError: j$/util/Collection$-EL`（或其它 `j$/util/*`） | **enjarify 合并 jar 不完整**：只把部分类合进去（实测只剩 33 个 `j$/util/*`，应 418 个），desugar 合成类缺失 | 重新**完整**合并 `enjarify-classes4.jar` + `enjarify-classes2.jar`（先解 4 再解 2，2 覆盖同名），按 §3 末尾两条命令校验类总数≈4507、`j$/util/*`≈418 |
 | `ReferenceError: "result" is not defined` | **JS 作用域没绑 `result`**（真机绑定清单：`source/baseUrl/result/chapter/nextChapterUrl/book/cookie/cache/title`） | 按 §3.6 绑全；**注意真机语义：规则首段的 `result` 初值就是当前内容（mContent）**，不是 null |
+| `TypeError: Cannot find function getString in object b2.JavaShim` | harness 的 `java` 垫片缺方法（真机 `java` 是 `AnalyzeRule`，方法全有） | 已修：`JavaShim` 转发 `getString(String)` / `getString(String,Object)`，并在 js 分支补 `AnalyzeRule.setContent`（否则返回空） |
+| `java.getString(...)` 恒返回空（不报错） | js 分支没给 `AnalyzeRule` 设当前内容 | 已修（同上）。若是自建 harness，记得先 `analyzeRule.setContent(内容)` 再 eval |
 | `VerifyError` / 栈图校验失败 | dex2jar 产物特性 | 运行时加 `-noverify`（`run.sh` 已带） |
 | `ExceptionInInitializerError: (message 为空)` | 该异常 `getMessage()` 恒为 null，只取 SimpleName+Message 会把根因吞掉 | 已修：harness 递归展开 cause 链 + 各层首帧；根因通常是 next row |
 | `IllegalStateException: appCtx has not been initialized`（被 EIIE 包裹） | 规则触发了依赖 Android appCtx 的路径（Glide 静态初始化） | **环境限制，非书源问题**；输出会带 note 明确标注。可试 `-Db2.injectAppCtx=true`，但实测会触发 JVM SIGSEGV，默认关闭 |

@@ -54,6 +54,14 @@ public final class RegionRunner {
         try {
             if ("js".equals(mode)) {
                 String js = RhinoEngine.stripPrefix(rule);
+                // 真机语义补全：真机里 java 绑定就是 AnalyzeRule 自身，且此时已 setContent(当前页)，
+                // 所以 `java.getString('#x@href')` 能取到值。此前 harness 未 setContent，
+                // 导致该写法在 B2 内**静默返回空**（不是报错，比报错更危险：会误判成"规则没问题"）。
+                try {
+                    analyzeRule.setContent(html);
+                } catch (Throwable ignore) {
+                    // 内容绑定失败不阻塞 JS 执行：java.getString 退化为空（与旧行为一致）
+                }
                 String r = RhinoEngine.evalJs(js, html, javaShim, "", html);  // 真机语义: result 初值 = 当前内容(mContent)
                 rr.setResult(r);
                 rr.setOk(true);
