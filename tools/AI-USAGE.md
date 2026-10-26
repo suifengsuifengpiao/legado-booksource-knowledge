@@ -86,6 +86,11 @@ python3 legado-tools/js_layer_check.py 你的书源.json
 python3 legado-tools/make_probe_source.py --help
 ```
 
+> **注意：`b2/` 真机引擎不在本工具包内。**
+> 本包（`legado-tools_v1.14.10.zip`）只含静态校验工具，解压即用。
+> 需要「JVM 加载 APK 真实 AnalyzeRule」的真机级解析验证时，另下运行时包：
+> `releases/legado-tools-b2-runtime_v1.14.10.zip`（27MB，含 APK 转出的 4 个 jar + enjarify 修复包 + 已编译 harness，**同样解压即跑**）。
+
 ## 五、遇到具体症状查哪
 
 | 症状 | 先看 |
