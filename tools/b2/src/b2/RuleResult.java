@@ -53,6 +53,8 @@ public final class RuleResult {
         } else {
             m.put("errorPhase", errorPhase);
             m.put("error", error);
+            // 失败时也要输出诊断 note（如"环境限制·非书源问题"），否则提示写了却看不到
+            if (!note.isEmpty()) m.put("note", note);
         }
         return m;
     }

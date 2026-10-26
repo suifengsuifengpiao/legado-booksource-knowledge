@@ -67,10 +67,71 @@ public final class RegionRunner {
         } catch (Throwable t) {
             rr.setOk(false);
             rr.setErrorPhase("execute:" + mode);
-            String msg = t.getMessage();
-            rr.setError(t.getClass().getSimpleName() + ": " + (msg == null ? "" : msg));
+            rr.setError(describe(t));
+            String hint = diagnose(t);
+            if (hint != null) rr.setNote(hint);
         }
         return rr;
+    }
+
+    /**
+     * 把"环境限制"与"书源问题"区分开，直接写进 note，避免使用者误判。
+     *
+     * <p>2026-10-26 验收反馈：多份书源出现 {@code ExceptionInInitializerError} 与连锁
+     * {@code NoClassDefFoundError: Could not initialize class ...}，使用者会以为是
+     * dex2jar/enjarify 转换不全；实测根因是纯 JVM 缺少 Android appCtx。
+     */
+    static String diagnose(Throwable t) {
+        Throwable cur = t;
+        int depth = 0;
+        while (cur != null && depth < 6) {
+            String m = cur.getMessage();
+            if (m != null) {
+                if (m.contains("appCtx has not been initialized")) {
+                    return "【环境限制·非书源问题】该规则触发了依赖 Android appCtx 的路径（Glide 静态初始化）。"
+                            + "B2 是纯 JVM 未注入 appCtx；可试 -Db2.injectAppCtx=true（实测有 JVM SIGSEGV 风险，默认关闭）。";
+                }
+                if (m.contains("Could not initialize class")) {
+                    return "【连锁失败】该类的静态初始化此前已失败，后续访问必然 NoClassDefFoundError；"
+                            + "请先看同一批次里最早的 ExceptionInInitializerError 那条的 cause。";
+                }
+            }
+            cur = cur.getCause();
+            depth++;
+        }
+        return null;
+    }
+
+    /**
+     * 把异常还原成**可排查**的文本：递归展开 cause 链 + 各层首帧。
+     *
+     * <p>动机（2026-10-26 验收反馈）：{@code ExceptionInInitializerError} 的 getMessage()
+     * 通常为 null，只取 SimpleName+Message 会得到 {@code "ExceptionInInitializerError: "}——
+     * 真正的根因（NoClassDefFoundError / NPE / 第三方 SDK 初始化失败）全被吞掉，无法定位。
+     *
+     * <p>输出形如：
+     * {@code ExceptionInInitializerError: (message 为空) @ A.<clinit>(A.java:1) <- NoClassDefFoundError: android/content/Context @ ...}
+     */
+    static String describe(Throwable t) {
+        StringBuilder sb = new StringBuilder();
+        Throwable cur = t;
+        int depth = 0;
+        while (cur != null && depth < 5) {
+            if (depth > 0) sb.append(" <- ");
+            sb.append(cur.getClass().getName());
+            String m = cur.getMessage();
+            if (m == null || m.trim().isEmpty()) {
+                sb.append(": (message 为空)");
+            } else {
+                String one = m.replace("\n", " ").replace("\r", " ").trim();
+                sb.append(": ").append(one.length() > 300 ? one.substring(0, 300) + "…" : one);
+            }
+            StackTraceElement[] st = cur.getStackTrace();
+            if (st != null && st.length > 0) sb.append(" @ ").append(st[0]);
+            cur = cur.getCause();
+            depth++;
+        }
+        return sb.toString();
     }
 
     /** 规则串 → 模式（与真机 RuleAnalyzer 自动识别对齐，供契约上报）。 */

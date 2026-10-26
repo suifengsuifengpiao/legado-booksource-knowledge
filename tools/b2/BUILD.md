@@ -238,7 +238,26 @@ unshare -n bash run.sh 2>&1 | grep -o '{"engine".*'
 | `MissingResourceException: Can't find bundle for base name org.mozilla.javascript.resources.Messages` | **dex2jar 丢了 Rhino 的非 class 资源** | 跑 `make-rhino-res.sh` 生成 `rhino-resources.jar`，确认它在 classpath 里（§3.5） |
 | `ReferenceError: "result" is not defined` | **JS 作用域没绑 `result`**（真机绑定清单：`source/baseUrl/result/chapter/nextChapterUrl/book/cookie/cache/title`） | 按 §3.6 绑全；**注意真机语义：规则首段的 `result` 初值就是当前内容（mContent）**，不是 null |
 | `VerifyError` / 栈图校验失败 | dex2jar 产物特性 | 运行时加 `-noverify`（`run.sh` 已带） |
+| `ExceptionInInitializerError: (message 为空)` | 该异常 `getMessage()` 恒为 null，只取 SimpleName+Message 会把根因吞掉 | 已修：harness 递归展开 cause 链 + 各层首帧；根因通常是 next row |
+| `IllegalStateException: appCtx has not been initialized`（被 EIIE 包裹） | 规则触发了依赖 Android appCtx 的路径（Glide 静态初始化） | **环境限制，非书源问题**；输出会带 note 明确标注。可试 `-Db2.injectAppCtx=true`，但实测会触发 JVM SIGSEGV，默认关闭 |
+| 连锁 `NoClassDefFoundError: Could not initialize class ...` | 某类静态初始化已失败，后续访问必然失败 | 看同批次**最早**那条 `ExceptionInInitializerError` 的 cause，别逐条查 |
+| `SelectorParseException: String must not be empty`（规则形如 `..xxx`） | **`..` 不是 Legado 语法**（真机 `AnalyzeRule`/`RuleAnalyzer` 均无预处理，dex 常量实证） | 书源笔误，改单点 `.xxx`。已实测 `.info_chapters@ul@li@a` 通过、`..info_chapters@...` 报错 |
 | 只要 jsoup 就够、xpath 也用不上 | 可以不前置 fix jar | 但 `xpath`/`jsonpath` 规则会优雅失败（不崩溃） |
+
+---
+
+## 7.5 已知不可用边界：依赖 Android appCtx 的规则
+
+部分书源规则（多为 `ruleBookInfo` / `ruleToc` 里用到 `@js:` 且触发 `BaseSource.getShareScope`）会让
+Glide 做静态初始化 → 需要 Android `appCtx`。纯 JVM 下：
+
+- **默认**：抛 `ExceptionInInitializerError`，cause 是 `IllegalStateException: appCtx has not been initialized`。
+  harness 会输出 **note: 【环境限制·非书源问题】**，并给出定位信息；
+- **`-Db2.injectAppCtx=true`**：注入 `B2Context` 后能往下走，但实测在 Glide 深处触发
+  **JVM SIGSEGV**（`JfrResolution::on_runtime_resolution`，dex 转换类的畸形字节码所致），
+  比可捕获异常更糟，故默认关闭。
+
+**结论**：这类规则在 B2 上验不了，必须在真机确认；B2 对它们的价值是"**告诉你这不是书源写错**"。
 
 ---
 

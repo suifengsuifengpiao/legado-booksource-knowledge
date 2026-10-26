@@ -53,6 +53,13 @@ public final class B2Harness {
     private static String SAMPLE_DIR = ".";
 
     public static void main(String[] args) throws Exception {
+        // 0) 可选：注入 Glide appCtx。默认关闭——实测注入后走到 Glide 深处会触发
+        //    dex2jar 转换类的 JVM SIGSEGV（JfrResolution::on_runtime_resolution），
+        //    比"可捕获的 ExceptionInInitializerError"更糟。开启：-Db2.injectAppCtx=true
+        if (Boolean.getBoolean("b2.injectAppCtx")) {
+            AppCtxInjector.install();
+        }
+
         String sourcePath = homeDir() + "/samples/booksource.json";
         String region = "all";
         String outPath = null;
