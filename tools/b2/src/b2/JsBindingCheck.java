@@ -55,6 +55,29 @@ public final class JsBindingCheck {
         String jsContent = RhinoEngine.evalJs("source.toUpperCase()", "<div>abc 正文</div>", shim, "");
         cases.add(caseMap("<js> source.toUpperCase()", jsContent, "<DIV>ABC 正文</DIV>"));
 
+        // 6) result 绑定存在性（真机语义：规则首段 result 初值 = 当前内容）
+        String tResult = RhinoEngine.evalJs("typeof result", "<p>x</p>", shim, "", "<p>x</p>");
+        cases.add(caseMap("typeof result（初值=内容）", tResult, "string"));
+
+        // 6b) 首段 result 就是内容本身（书源普遍写法 ''+result）
+        String r0 = RhinoEngine.evalJs("''+result", "<p>abc</p>", shim, "", "<p>abc</p>");
+        cases.add(caseMap("''+result（首段=内容）", r0, "<p>abc</p>"));
+
+        // 7) result 传值（模拟链式规则的上一步结果）
+        String useResult = RhinoEngine.evalJs("result + '!'", "", shim, "", "上一段");
+        cases.add(caseMap("result + '!'（传值）", useResult, "上一段!"));
+
+        // 8) result 为 null 时书源最常见的写法不能崩
+        String nullSafe = RhinoEngine.evalJs("(result || 'fallback')", "", shim, "", null);
+        cases.add(caseMap("(result || 'fallback')（null 安全）", nullSafe, "fallback"));
+
+        // 9) 其余真机绑定必须存在（否则 ReferenceError 误导排查）
+        String binds = RhinoEngine.evalJs(
+                "[typeof src, typeof title, typeof cookie, typeof book, typeof chapter, typeof cache, typeof nextChapterUrl].join(',')",
+                "", shim, "", null);
+        cases.add(caseMap("绑定存在性 src/title/cookie/book/chapter/cache/nextChapterUrl", binds,
+                "string,string,object,object,object,object,string"));
+
         Map<String, Object> root = new LinkedHashMap<>();
         root.put("engine", DebugContract.ENGINE);
         root.put("engineVersion", DebugContract.ENGINE_VERSION);

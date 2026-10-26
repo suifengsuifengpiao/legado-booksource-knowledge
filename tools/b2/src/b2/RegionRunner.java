@@ -54,7 +54,7 @@ public final class RegionRunner {
         try {
             if ("js".equals(mode)) {
                 String js = RhinoEngine.stripPrefix(rule);
-                String r = RhinoEngine.evalJs(js, html, javaShim, "");
+                String r = RhinoEngine.evalJs(js, html, javaShim, "", html);  // 真机语义: result 初值 = 当前内容(mContent)
                 rr.setResult(r);
                 rr.setOk(true);
                 rr.setNote("dex-Rhino + java.* 真绑定(加密走真实hutool, 网络走NetworkStub)");

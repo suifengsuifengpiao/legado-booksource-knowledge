@@ -123,6 +123,27 @@ javac -cp "$(bash build-cp.sh)" -d /tmp /tmp/T.java && java -cp "$(bash build-cp
 
 ---
 
+## 3.6 JS 作用域绑定（**缺一个就 ReferenceError**）
+
+真机 `AnalyzeRule.evalJS` 的作用域变量（dex 字符串常量实证）：
+
+| 变量 | 含义 | harness 取值 |
+|---|---|---|
+| `result` | **上一步结果；规则首段时为当前内容（mContent）** | 传入当前内容 |
+| `baseUrl` | 当前 URL | 样本 URL |
+| `source` | BaseSource 对象（真机）；harness 兼容为样本内容 | 内容 |
+| `src` | 请求返回的源码 | 内容 |
+| `title` / `nextChapterUrl` | 章节标题 / 下一章 URL | 空串 |
+| `cookie` / `cache` / `book` / `chapter` | 对应对象 | null（**存在**，不是 undefined） |
+| `java` | 当前类扩展（见 `JavaShim`） | 垫片 |
+
+两条铁律：
+
+1. **名字必须存在**。真机无值时为 `null`；"不存在"是 `ReferenceError`，而书源普遍写 `''+result`、`result || ''`，一崩就是整条规则失败。
+2. **`result` 初值 = 当前内容**。证据：黄金屋 `ruleToc.nextTocUrl = @js:(function(){var h=''+result,u=''+baseUrl,...` —— 它拿 `result` 去正则匹配目录页 HTML 找"下一页"。若按 null 处理，`''+null` = `"null"`，永远匹配不到。
+
+---
+
 ## 4. 目录布局（构建机）
 
 ```
@@ -185,7 +206,19 @@ java -noverify -Db2.home="$(pwd)" -cp "$(bash build-cp.sh):out" b2.XpathProbe
 
 **期望**：xpath 多轴用例 6/6、jsonpath 2/2 全部 `ok=true`。这两个探针是判断"enjarify 是否真的救活了"的唯一硬指标——主回归 12 条全是 jsoup 模式，**不覆盖** xpath/jsonpath。
 
-### 6.3 隔离网络复核（可选，证明零联网）
+### 6.3 JS 绑定自检（**必跑**，2026-10-26 因漏检吃过亏）
+
+```bash
+java -noverify -Db2.home="$(pwd)" -cp "$(bash build-cp.sh):out" b2.JsBindingCheck
+```
+
+**期望**：`cases` 全 `match=true`（当前 10 条）。
+
+覆盖：`java.md5Encode` / `base64Encode` / `base64Decode` 回环 / `java.get` 硬短路 / `source` / **`result`（初值=内容、传值、null 安全）** / 其余绑定存在性（`src/title/cookie/book/chapter/cache/nextChapterUrl`）。
+
+> 为什么必须跑：主回归 12 条全在 jsoup 模式，**完全覆盖不到 JS 绑定**。曾经 12/12 全绿但 `result` 未绑定，直到拿真实书源（黄金屋 `nextTocUrl`）才暴露。
+
+### 6.4 隔离网络复核（可选，证明零联网）
 
 ```bash
 unshare -n bash run.sh 2>&1 | grep -o '{"engine".*'
@@ -203,6 +236,7 @@ unshare -n bash run.sh 2>&1 | grep -o '{"engine".*'
 | `InstantiationError: ...ConcurrentHashMap$CollectionView` | 脱糖 JDK 类被转坏 | 确认 `xpath-fix-enjarify.jar` 含 `j$/util/concurrent/*`（来自 classes2） |
 | `NoClassDefFoundError: android/...` | 桩缺类 | 补 `android-stub/src`，重跑 `android-stub/build.sh` |
 | `MissingResourceException: Can't find bundle for base name org.mozilla.javascript.resources.Messages` | **dex2jar 丢了 Rhino 的非 class 资源** | 跑 `make-rhino-res.sh` 生成 `rhino-resources.jar`，确认它在 classpath 里（§3.5） |
+| `ReferenceError: "result" is not defined` | **JS 作用域没绑 `result`**（真机绑定清单：`source/baseUrl/result/chapter/nextChapterUrl/book/cookie/cache/title`） | 按 §3.6 绑全；**注意真机语义：规则首段的 `result` 初值就是当前内容（mContent）**，不是 null |
 | `VerifyError` / 栈图校验失败 | dex2jar 产物特性 | 运行时加 `-noverify`（`run.sh` 已带） |
 | 只要 jsoup 就够、xpath 也用不上 | 可以不前置 fix jar | 但 `xpath`/`jsonpath` 规则会优雅失败（不崩溃） |
 
