@@ -1,0 +1,3 @@
+BUILD android-stub.jar -> /workspace/legado-knowledge-repo/tools/b2/android-stub/android-stub.jar (24 classes)
+[run.sh] 编译 harness 源码...
+{"engine":"legado-dex-real","engineVersion":"Legado 3.25 / dex 4-jar (OpenJDK 20, -noverify)","bookSource":"QA-xpath-jsonpath-损坏复核","summary":{"total":2,"ok":2,"failed":0},"rules":[{"region":"ruleContent","ruleKey":"content","rule":"//div[@class='t']/text()","mode":"xpath","result":"你好世界xpath","ok":true},{"region":"ruleBookInfo","ruleKey":"name","rule":"$.store.book[0].title","mode":"jsonpath","result":"JSON书jsonpath","ok":true}]}

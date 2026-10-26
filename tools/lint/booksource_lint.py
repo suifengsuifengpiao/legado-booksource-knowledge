@@ -2646,6 +2646,27 @@ def _eval_url_template(text, keyword="", page=1, base_url="", charset="utf-8"):
 _SEARCH_JS_CACHE = {}
 
 
+_URL_OPT_SUFFIX_RE = re.compile(r"^([\s\S]*?),\s*(\{[\s\S]*\})\s*$")
+
+
+def strip_url_options(url):
+    """剥离 Legado 请求选项后缀 `,{...}`，返回纯 URL。
+
+    真机 AnalyzeUrl 会把 `url,{"webView":true,"method":"POST"}` 拆成 URL + options；
+    工具在真实抓取前必须做同样的事，否则会把选项当成 URL 的一部分去请求（必 404/超时），
+    对所有带请求选项的书源（webView / method / body / charset / retry）产生误报。
+    """
+    u = str(url or "").strip()
+    m = _URL_OPT_SUFFIX_RE.match(u)
+    if not m:
+        return u
+    try:
+        json.loads(m.group(2))
+    except Exception:
+        return u
+    return m.group(1).strip()
+
+
 def build_search(src, keyword, page=1):
     """从 searchUrl 构造真实请求 (url, method, body, charset)，无搜索则回退 bookSourceUrl。
     searchUrl 支持两种 JS 写法, 均经 node 桥接执行 (java.ajax 同步 curl 带书源 headers/cookie,
@@ -3239,6 +3260,7 @@ def live_debug(src, raw, rep, keyword, browser=False, no_browser=False, explore=
             return
         _tab_title, _tab_url = tabs[0]
         url = _eval_url_template(_tab_url, keyword=keyword or "", page=1, base_url=base)
+        url = strip_url_options(url)   # 对齐 App AnalyzeUrl: `,{...}` 是请求选项，不是 URL
         if base:
             url = urljoin(base, url)   # 对齐 App：bookSourceUrl + exploreUrl 拼接
         if len(tabs) > 1:
@@ -3257,6 +3279,7 @@ def live_debug(src, raw, rep, keyword, browser=False, no_browser=False, explore=
                       "无 searchUrl（需 --keyword）且无 exploreUrl；纯发现源请加 --explore")
             return
         url, method, body, bs_charset = bs
+        url = strip_url_options(url)   # 对齐 App AnalyzeUrl: `,{...}` 是请求选项，不是 URL
         if keyword and bs_charset and bs_charset != "utf-8":
             charset = bs_charset  # 对齐 AnalyzeUrl: options.charset 同管响应解码
         rg = _region(src, "ruleSearch") or {}
@@ -3612,6 +3635,90 @@ def self_test():
     return 0 if ok else 1
 
 
+# ----------------------------------------------------------------------------
+# B2 真机引擎集成（--real-engine）
+# ----------------------------------------------------------------------------
+def run_real_engine(src_path, out_json, b2_dir, sample_dir=None, timeout=180):
+    """调用 B2 harness（纯 JVM 加载 dex AnalyzeRule）对书源做真实解析。
+
+    返回 (contract_dict, None) 表示成功；返回 (None, error_msg) 表示失败。
+    失败场景（java 缺失 / dex jar 缺失 / 桩不全 / JVM 崩溃）由调用方优雅降级回模拟层。
+    """
+    java_bin = shutil.which("java")
+    if not java_bin:
+        return None, "未找到 java 可执行文件（需 OpenJDK 20）"
+    run_sh = os.path.join(b2_dir, "run.sh")
+    if not os.path.isfile(run_sh):
+        return None, "未找到 B2 harness 入口: %s" % run_sh
+    # dex jar 自检（硬依赖）
+    dex_dir = "/workspace/b2-work"
+    for j in ("classes.jar", "classes2.jar", "classes3.jar", "classes4.jar"):
+        if not os.path.isfile(os.path.join(dex_dir, j)):
+            return None, "缺失 dex jar: %s（B2 真机引擎不可用）" % j
+
+    cmd = [run_sh, "b2.B2Harness", "--source", src_path, "--out", out_json]
+    if sample_dir:
+        cmd += ["--sample-dir", sample_dir]
+    try:
+        proc = subprocess.run(cmd, cwd=b2_dir, capture_output=True, text=True, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        return None, "B2 harness 执行超时（可能触发 JVM 崩溃，已阻断真连风险）"
+    except Exception as e:  # noqa
+        return None, "B2 harness 调用异常: %s" % e
+    if proc.returncode != 0:
+        err = proc.stderr.strip().splitlines()[-3:] if proc.stderr.strip() else ["未知错误"]
+        return None, "B2 harness 非零退出(%d): %s" % (proc.returncode, " | ".join(err))
+    try:
+        with open(out_json, "r", encoding="utf-8") as f:
+            return json.load(f), None
+    except Exception as e:  # noqa
+        return None, "B2 契约解析失败: %s" % e
+
+
+def _real_engine_section(rep, args, src_path):
+    """在模拟层之上叠加 B2 真机引擎结果；失败时优雅降级并告警。"""
+    import tempfile
+    tmpd = tempfile.mkdtemp(prefix="b2lint_")
+    out_json = os.path.join(tmpd, "contract.json")
+    # 若 lint 提供了样本页，构造 B2 样本目录对接真机引擎
+    sample_dir = None
+    region_map = {
+        "content": getattr(args, "content_html", None),
+        "bookinfo": getattr(args, "bookinfo_html", None),
+        "toc": getattr(args, "toc_html", None),
+        "search": getattr(args, "search_html", None),
+    }
+    has_any = any(region_map.values())
+    if has_any:
+        sample_dir = os.path.join(tmpd, "samples")
+        os.makedirs(sample_dir, exist_ok=True)
+        common = getattr(args, "html", None)
+        for region, val in region_map.items():
+            html = val if val else common
+            if html:
+                with open(os.path.join(sample_dir, "%s-sample.json" % region), "w", encoding="utf-8") as f:
+                    json.dump({"html": html}, f, ensure_ascii=False)
+
+    contract, err = run_real_engine(src_path, out_json, args.b2_dir, sample_dir)
+    if contract is None:
+        rep.warn("REAL-ENGINE-FALLBACK",
+                 "B2 真机引擎不可用，已优雅降级回模拟层：%s" % err)
+        return
+    summary = contract.get("summary", {})
+    rep.info("REAL-ENGINE",
+             "B2 真机引擎跑通（%s）：ok=%s failed=%s，逐规则明细见下"
+             % (contract.get("engineVersion", ""), summary.get("ok"), summary.get("failed")))
+    for r in contract.get("rules", []):
+        if r.get("ok"):
+            rep.info("REAL-ENGINE-RULE",
+                     "[%s.%s] mode=%s => %s" % (r.get("region"), r.get("ruleKey"),
+                                                r.get("mode"), (r.get("result") or "")[:80]))
+        else:
+            rep.warn("REAL-ENGINE-RULE-FAIL",
+                     "[%s.%s] mode=%s 失败(%s): %s" % (r.get("region"), r.get("ruleKey"),
+                         r.get("mode"), r.get("errorPhase"), r.get("error")))
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description="AI 书源调试工具（反编译 Legado 3.25 实证）")
     ap.add_argument("path", nargs="?", help="书源 JSON 路径，- 表示 stdin")
@@ -3631,6 +3738,13 @@ def main(argv=None):
     ap.add_argument("--no-browser", action="store_true",
                     help="禁止浏览器自动升级，仅用普通请求")
     ap.add_argument("--self-test", action="store_true", help="内置正/反例自检")
+    ap.add_argument("--real-engine", action="store_true",
+                    help="启用 B2 真机引擎（纯 JVM 加载 dex AnalyzeRule 真实解析）；"
+                         "真机引擎不可用（缺 dex jar / 桩不全 / JVM 崩溃）时优雅降级回模拟层并告警")
+    ap.add_argument("--b2-dir", default=os.environ.get("B2_HARNESS_DIR",
+                    os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                                 "b2")),
+                    help="B2 harness 目录（默认 ../b2，相对 lint 目录）")
     args = ap.parse_args(argv)
 
     if args.self_test:
@@ -3666,6 +3780,10 @@ def main(argv=None):
         return 0
 
     run_checks(src, raw, rep, args.dynamic, samples)
+
+    # B2 真机引擎（--real-engine）：在模拟层之上叠加 dex 真实解析结果；失败则优雅降级回模拟层
+    if args.real_engine:
+        _real_engine_section(rep, args, args.path)
 
     # 真实链路调试：搜索(--keyword) 或 探索(--explore / 纯发现源自动)
     src_explore = bool(src.get("exploreUrl")) and str(src.get("exploreUrl", "")).strip()

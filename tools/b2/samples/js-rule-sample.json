@@ -1,0 +1,1 @@
+{"js":"@js:java.md5Encode('abc')","source":"","networkJs":"@js:java.get('https://api.test/x')","contentJs":"@js:source.toUpperCase()"}

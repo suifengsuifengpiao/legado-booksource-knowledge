@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+*.pyo
+tools/b2/out/
+tools/b2/hs_err_pid*.log
+tools/b2/**/*.class
+*.err

@@ -1,0 +1,118 @@
+classDiagram
+    %% ===== 真实 dex 类（来自 4 个 legado jar，禁止外部替换）=====
+    class AnalyzeRule {
+        <<dex-bundled>>
+        +AnalyzeRule(RuleDataInterface, BaseSource)
+        +AnalyzeRule()
+        +String getString(String rule)
+        +String getString(String rule, Object content)
+        +String getString(String rule, Object content, boolean isUrl)
+        +String getString(List~SourceRule~ rules)
+        +AnalyzeRule setContent(Object content)
+        +AnalyzeRule setContent(Object content, String baseUrl)
+        +Object evalJS(String js, Object bind)
+    }
+    class RuleData {
+        <<dex-bundled>>
+        +RuleData()
+        +String getVariable(String k)
+        +boolean putVariable(String k, String v)
+        +HashMap~String,String~ getVariableMap()
+    }
+    class RuleDataInterface {
+        <<dex-bundled>>
+        +String getVariable(String k)
+        +boolean putVariable(String k, String v)
+        +HashMap~String,String~ getVariableMap()
+        +void putBigVariable(String k, String v)
+        +String getBigVariable(String k)
+    }
+    class BookSource {
+        <<dex-bundled>>
+        +BookSource()
+        +BookSource(28-arg ctor)
+    }
+    class BaseSource {
+        <<dex-bundled abstract>>
+    }
+    class AnalyzeByJSoup {
+        <<dex-bundled>>
+        +String getString(...)
+    }
+    class AnalyzeByXPath {
+        <<dex-bundled>>
+        +String getString(...)
+    }
+    class AnalyzeByJSonPath {
+        <<dex-bundled>>
+        +String getString(...)
+    }
+    class AnalyzeByRegex {
+        <<dex-bundled>>
+        +String getString(...)
+    }
+    class RuleAnalyzer {
+        <<dex-bundled>>
+        +int analyze(String rule)  %% 自动识别 mode
+    }
+    class JsExtensions {
+        <<dex-bundled interface>>
+        +String get(String url)
+        +String ajax(Object o)
+        +String base64Encode(String s)
+        +String md5Encode(String s)
+    }
+
+    %% ===== harness / 桩类（自产）=====
+    class B2Harness {
+        <<harness>>
+        +main(String[] args)
+        +runBookSource(json, samples) : Contract
+    }
+    class AndroidStub {
+        <<harness>>
+        android.util.Log
+        android.net.Uri
+        android.os.Build
+        android.os.Bundle
+        android.content.Context
+        android.content.SharedPreferences
+    }
+    class NetworkStub {
+        <<harness>>
+        +StrResponse connect(String url)
+        +StrResponse ajax(String url)
+        +String get(String url)
+    }
+    class SelectorEngine {
+        <<dex-bundled>>
+        org.jsoup / org.seimicrawler.xpath
+        com.jayway.jsonpath / cn.hutool
+        org.mozilla.javascript (Rhino)
+    }
+    class DebugContract {
+        <<harness>>
+        +List~RuleResult~ rules
+        +List~Error~ errors
+    }
+
+    %% ===== 关系 =====
+    B2Harness ..> BookSource : Gson.fromJson(书源JSON)
+    B2Harness ..> RuleData : new
+    B2Harness ..> AnalyzeRule : new(ruleData, bookSource)
+    AnalyzeRule ..|> JsExtensions
+    AnalyzeRule --> RuleDataInterface : 持有
+    RuleData ..|> RuleDataInterface
+    BookSource --|> BaseSource
+    AnalyzeRule --> RuleAnalyzer : 自动识别 mode
+    AnalyzeRule --> AnalyzeByJSoup : 委托(jsoup模式)
+    AnalyzeRule --> AnalyzeByXPath : 委托(xpath模式)
+    AnalyzeRule --> AnalyzeByJSonPath : 委托(jsonpath模式)
+    AnalyzeRule --> AnalyzeByRegex : 委托(regex模式)
+    AnalyzeByJSoup --> SelectorEngine : 真 jsoup
+    AnalyzeByXPath --> SelectorEngine : 真 JsoupXpath
+    AnalyzeByJSonPath --> SelectorEngine : 真 jayway
+    AnalyzeRule --> SelectorEngine : evalJS 真 Rhino(java=this)
+    AnalyzeRule ..> AndroidStub : 反射调用 Log/Uri/Build
+    AnalyzeRule ..> NetworkStub : java.get/ajax 硬短路
+    B2Harness ..> DebugContract : 汇总输出

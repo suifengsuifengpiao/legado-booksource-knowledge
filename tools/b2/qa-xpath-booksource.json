@@ -1,0 +1,5 @@
+{
+  "bookSourceName": "QA-xpath-jsonpath-损坏复核",
+  "ruleContent": { "content": "//div[@class='t']/text()" },
+  "ruleBookInfo": { "name": "$.store.book[0].title" }
+}

@@ -554,3 +554,23 @@ altcha（PoW，`auto:"off"`）widget 与正文同源：webJs 检测未 checked �
 ### 坑 N7：www + 移动 UA 会被站点 JS 跳回 m 域
 
 xs5200 实证：站点按屏幕宽度/触摸能力检测强制跳 m 域，改 UA 无用；且移动版目录分页不全、桌面版书籍页内嵌全量目录——从移动版进书要还原桌面版 URL。
+
+### 坑 N8：正文只给一段 + "本站只支持手机浏览器访问"＝先加手机 UA，别上 webView（2026-10-26 四五小说实证）
+
+症状：目录正常、正文只取到约 1000 字就断，紧跟「更多内容加载中…请稍候…」+「本站只支持手机浏览器访问…请关闭阅读模式/畅读模式/广告屏蔽…」。
+
+排查死路（都试过）：
+- 上 `webView`：页面 JS 反而判定失败，正文直接变成失败提示；
+- 追页面里 `document.write` 注入的第三方 JS（本例 `rin.vuhhryua.com:38458/js/.../xxx.js`）：Node vm 解混淆实跑，两分支分别是统计打点与随机域名广告劫持，**不含正文**；页面尾部 `var c="..."` base64 解开仍是混淆代码。
+
+正解：**书源 `header` 加手机 Chrome UA** → 站点返回完整正文。判定依据：站点是"按 UA 决定给多少正文"，不是 JS 渲染。
+
+配套实证（3.25 `AnalyzeUrl$UrlOption` 反查）：真实可用的请求选项只有 `webView` / `webWait`（Integer，**默认 1000ms**）/ `webJs` / `retry` / `charset` / `method` / `body` / `headers` / `enabledCookieJar` / `type` / `js`；**`webViewDelayTime` 不存在**（写了不生效）；**`webViewUA` 改不了**（`getWebViewUA()` → `WebSettings.getDefaultUserAgent(context)`，系统 UA）。选项写法 `url,{json}`，对 `##正则##替换` 形态同样生效。
+
+### 坑 N9：`java.timeFormat` 只吃时间戳，传日期字符串会崩整个区域（2026-10-26 爱看书网实证）
+
+`ruleToc.updateTime = "$.updateDate@js:java.timeFormat(result)"`，而 `$.updateDate` 返回的是 `"2024-11-20 16:14:15.15"` 字符串 → Rhino 强转 Long 失败 → `Cannot convert ... to java.lang.Long` → **整个目录解析中断**（书能搜到、目录出不来）。
+
+正解：源站给的是日期串时直接取字段（`$.updateDate`），不要套 `java.timeFormat`。
+
+同案附坑：`lastUpdateChapterName` 这类字段名别照抄别的站——该接口根本没有此字段，硬抄则永远空；补字段前先看接口真实返回的 key。

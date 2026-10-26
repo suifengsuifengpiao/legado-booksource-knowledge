@@ -1,0 +1,24 @@
+{
+  "bookSourceName": "B2演示书源(5200风格, 选区适配)",
+  "bookSourceUrl": "https://www.example.com",
+  "ruleContent": {
+    "content": "@CSS:div#content@html##下载星星阅读app[^<]*(?:<br\\s*/?>\\s*)+|\\s*手机版阅读网址[^\\n]*##"
+  },
+  "ruleBookInfo": {
+    "name": "@CSS:div.info > h1@text",
+    "author": "@CSS:div.info > div.small > span:nth-child(1)@text##^作者：##",
+    "coverUrl": "@CSS:div.info > img@src",
+    "intro": "@CSS:div.info > div.intro@text"
+  },
+  "ruleToc": {
+    "chapterList": "div.listmain dd a",
+    "chapterName": "div.listmain dd a@text",
+    "chapterUrl": "div.listmain dd a@href"
+  },
+  "ruleSearch": {
+    "bookList": "ul.lis li",
+    "name": "span.s2 > a@text",
+    "author": "span.s3@text",
+    "bookUrl": "span.s2 > a@href"
+  }
+}
