@@ -1,6 +1,10 @@
-# Legado 书源工具链（legado-booksource-debug 技能 v1.14.9）
+# Legado 书源工具链（legado-booksource-debug 技能 v1.14.10）
 
 本地化校验与真机语义对齐工具集。核心原则：**本地不建模的语义如实降级为「需真机验证」，绝不跑出与真机不符的假结果**。
+
+> **同步状态（2026-10-26 20:46）**：本目录 15 个脚本已与技能 `scripts/` **逐文件 md5 一致**。
+> 本次补齐差距：`test_parse.py` / `validate_booksource.py` 从 v1.14.9 旧版更新到含「`ruleContent.replaceRegex` 在 3.25 是活字段、但必须以 `##` 开头；书源顶层 `replaceRegex` 不是 3.25 字段会被 Gson 静默丢弃」的纠错版。
+> 另：`lint/booksource_lint.py`（知识库侧 lint 工具，非技能脚本）新增 `strip_url_options()`。
 
 ## 脚本清单
 

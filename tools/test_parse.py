@@ -1287,19 +1287,18 @@ def check_field_availability(src):
     实测结论(已用 legado_app_3.25.apk 反编译 + 用户真机双证实):
       - loginCheckJs 在本 App 生效: 每次请求后执行, 结果 JSON 取 Cookie/cookie →
         CookieStore.replaceCookie 落库, getLoginHeader 自动带上下次请求。可用于过验证墙。
-      - ruleContent.replaceRegex 在本 App 是死字段: 全代码库仅 ContentRule.toString 引用,
-        无解析/执行逻辑; 正文净化必须写进 content 的 <js>。
+      - ruleContent.replaceRegex 在 3.25 生效(执行点 webBook.w.b → AnalyzeRule.getString), 但必须 ## 开头(裸正则=被当规则求值→正文取空→抛「内容为空」); 净化首选 content 的 <js> 或行内 ##。
     """
     print("\n[字段可用性核查 · 基准=legado 3.25 反编译+真机]")
     rc = src.get("ruleContent")
     rc = norm_region(rc) if isinstance(rc, (dict, str)) else None
     if isinstance(rc, dict) and rc.get("replaceRegex"):
-        msg = ("⚠ ruleContent.replaceRegex 在本 App 是死字段(反编译+真机证实), "
-               "写了不执行 → 正文净化请改用 content 的 <js>")
+        msg = ("⚠ ruleContent.replaceRegex 在本 App 生效(执行点 webBook.w.b → AnalyzeRule.getString), "
+               "但必须以 ## 开头(裸正则会被当规则求值→正文取空→抛「内容为空」); 请写成 `##正则##替换`")
         print("  " + msg)
         FIELD_NOTES.append(msg)
     else:
-        print("  ✓ 未见 ruleContent.replaceRegex(死字段), 正文净化约定走 content 的 <js> ✓")
+        print("  ✓ 未见 ruleContent.replaceRegex(如要用, 须 ## 开头), 正文净化约定走 content 的 <js> ✓")
     global HAS_LOGINCHECKJS
     if src.get("loginCheckJs"):
         HAS_LOGINCHECKJS = True

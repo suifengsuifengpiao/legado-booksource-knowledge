@@ -198,7 +198,7 @@ GROUP_KNOWN_KEYS = {
                      "init", "downloadUrls"},
     "ruleToc": {"preUpdateJs", "formatJs", "isVolume", "isVip", "isPay", "updateTime"},
     "ruleContent": {"webJs", "sourceRegex", "imageStyle", "replaceRegex", "payAction",
-                    "subContent", "title", "imageDecode", "callBackJs"},
+                    "title", "imageDecode"},
 }
 
 
@@ -1019,19 +1019,34 @@ def check_source(src, idx, errors, warns, notes):
         warns.append("[%s] 未见有效 charset 声明(GBK/UTF-8): 只能写在 URL 行内选项 "
                      r'{"charset":"utf-8"} 或 header 里, 写在书源顶层会被静默丢弃' % label)
 
-    # 净化规则: 顶层 replaceRegex, 或 ruleContent.replaceRegex(Legado 3.x), 或 content 内嵌 ##
-    # 🔴 3.25 反编译实锤: 部分定制版 APK 对 ruleContent.replaceRegex 零消费(死字段),
-    #    且 <js> 管道正文中 "##" 会被 Rhino 当字符串, 故最可靠的净化是写在 content 的 JS 内。
-    rr = src.get("replaceRegex")
+    # 净化规则: ruleContent.replaceRegex(3.25 有消费点: webBook.w.b → AnalyzeRule.getString), 或 content 内嵌 ##
+    # ✅ 3.25 dex 实证: ruleContent.replaceRegex 是活字段, 但必须 "##" 开头 ——
+    #    裸正则会被当 JSOUP 规则求值, 取不到 → 正文整段为空 → 抛 ContentEmptyException("内容为空")。
+    # 🔴 书源顶层 replaceRegex 不是 3.25 字段(BookSource 30 字段实测无此键), 会被 Gson 静默丢弃, 不能当净化凭证。
+    if src.get("replaceRegex"):
+        warns.append("[%s] 书源顶层 replaceRegex 不是 3.25 书源字段, 会被 Gson 静默丢弃; "
+                     "请改写进 ruleContent.replaceRegex 或 content 行内 ##" % label)
     rc = _parse_rule_region(src.get("ruleContent"))
     rc = rc if isinstance(rc, dict) else {}
     content_rule = rc.get("content", "")
-    if not rr:
-        rr = rc.get("replaceRegex")  # Legado 3.x 支持 ruleContent.replaceRegex
-    js_sanitized = isinstance(content_rule, str) and ("<js>" in content_rule and ("continue" in content_rule or "break" in content_rule or ".test(" in content_rule))
+    rr = rc.get("replaceRegex")
+    if isinstance(rr, str) and rr.strip():
+        if not rr.lstrip().startswith("##"):
+            errors.append("[%s] ruleContent.replaceRegex 必须以 `##` 开头(写成裸正则会被当规则求值, "
+                          "正文被取空并抛「内容为空」)。写法: `##正则##替换`" % label)
+        else:
+            _seg = rr.split("##")
+            _pat = _seg[1] if len(_seg) > 1 else ""
+            if _pat:
+                try:
+                    re.compile(_pat)
+                except re.error as e:
+                    errors.append("[%s] ruleContent.replaceRegex 正则无法编译: %s" % (label, e))
+    js_sanitized = isinstance(content_rule, str) and (
+        "<js>" in content_rule and ("continue" in content_rule or "break" in content_rule or ".test(" in content_rule))
     if not rr:
         if not (isinstance(content_rule, str) and "##" in content_rule) and not js_sanitized:
-            warns.append("[%s] 未配置 replaceRegex / content 内嵌 ## / JS 内净化过滤, 正文可能夹带广告(注意: 部分定制版App不执行ruleContent.replaceRegex, 净化请写进content的JS)" % label)
+            warns.append("[%s] 未配置 replaceRegex / content 内嵌 ## / JS 内净化过滤, 正文可能夹带广告" % label)
 
     check_field_ownership(src, label, errors, warns)
     check_url_options(src, label, errors, warns, notes)
