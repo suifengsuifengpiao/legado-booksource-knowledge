@@ -5,3 +5,10 @@ tools/b2/out/
 tools/b2/hs_err_pid*.log
 tools/b2/**/*.class
 *.err
+
+# ---- P0-4 降级方案（2026-10-27，主理人裁决：不做 git filter-repo 历史重写）----
+# 原因：27.95MB 运行时 zip 在 git history 内 → .git 170MB → GitHub push 133s 超时
+# 裁决：不重写历史（不可逆 + 无法与另一沙箱协调），改为拦住 future 提交；
+#       二进制改投 Gitee Release（既有先例 .../releases/download/v1.14.10-b2.5/）
+releases/*.zip
+releases/*.skill
