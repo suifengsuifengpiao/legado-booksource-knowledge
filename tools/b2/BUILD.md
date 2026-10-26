@@ -81,6 +81,48 @@ cd .. && jar cf jar/xpath-fix-enjarify.jar -C merged .
 
 ---
 
+## 3.5 提取 Rhino 本地化资源（**必需，最容易漏**）
+
+**dex2jar 只转 class，会丢掉 jar 内所有非 class 资源。** Rhino 一旦要报错就读
+`org/mozilla/javascript/resources/Messages.properties` 做本地化，缺了它：
+
+```
+任意 @js: 规则出错 → MissingResourceException: Can't find bundle for base name
+                    org.mozilla.javascript.resources.Messages
+```
+
+真正的 `TypeError` / `ReferenceError` 被彻底盖住，排查方向直接被带偏（会以为是 harness 坏了）。
+
+```bash
+bash make-rhino-res.sh                      # 默认读 /workspace/legado_app_3.25.apk
+# 或
+bash make-rhino-res.sh /path/to/legado_app_3.25.apk ./rhino-resources.jar
+```
+
+产物 20KB，`build-cp.sh` 会自动把它拼进 classpath（变量 `RHINO_RES_JAR` 可覆盖）。
+
+**验证修复是否生效**——跑一个必然出错的 JS：
+
+```bash
+cat > /tmp/T.java <<'EOF'
+import org.mozilla.javascript.*;
+public class T {
+  public static void main(String[] a) {
+    Context cx = Context.enter();
+    try { cx.evaluateString(cx.initStandardObjects(), "null.foo", "t", 1, null); }
+    catch (Throwable e) { System.out.println(e.getClass().getSimpleName() + ": " + e.getMessage()); }
+    finally { Context.exit(); }
+  }
+}
+EOF
+javac -cp "$(bash build-cp.sh)" -d /tmp /tmp/T.java && java -cp "$(bash build-cp.sh):/tmp" T
+```
+
+- ❌ 没修：`MissingResourceException: Can't find bundle for base name ...`
+- ✅ 修好：`EcmaError: TypeError: Cannot read property "foo" from null (t#1)`
+
+---
+
 ## 4. 目录布局（构建机）
 
 ```
@@ -160,6 +202,7 @@ unshare -n bash run.sh 2>&1 | grep -o '{"engine".*'
 | `state type 182` / ANTLR ATN 反序列化失败 | xpath 引擎被 dex2jar 转坏 | 确认 `FIX_JAR` 前置且 jar 内有 `cb/j.class`；可用 `javap -p -c` 对照 |
 | `InstantiationError: ...ConcurrentHashMap$CollectionView` | 脱糖 JDK 类被转坏 | 确认 `xpath-fix-enjarify.jar` 含 `j$/util/concurrent/*`（来自 classes2） |
 | `NoClassDefFoundError: android/...` | 桩缺类 | 补 `android-stub/src`，重跑 `android-stub/build.sh` |
+| `MissingResourceException: Can't find bundle for base name org.mozilla.javascript.resources.Messages` | **dex2jar 丢了 Rhino 的非 class 资源** | 跑 `make-rhino-res.sh` 生成 `rhino-resources.jar`，确认它在 classpath 里（§3.5） |
 | `VerifyError` / 栈图校验失败 | dex2jar 产物特性 | 运行时加 `-noverify`（`run.sh` 已带） |
 | 只要 jsoup 就够、xpath 也用不上 | 可以不前置 fix jar | 但 `xpath`/`jsonpath` 规则会优雅失败（不崩溃） |
 

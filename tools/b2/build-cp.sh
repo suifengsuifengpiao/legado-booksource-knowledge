@@ -33,7 +33,24 @@ OUT_DIR="${OUT_DIR:-$SCRIPT_DIR/out}"
 # -----------------------------------------------------------------------------
 FIX_JAR="${FIX_JAR:-/workspace/b2-work/fix/jar/xpath-fix-enjarify.jar}"
 
+# -----------------------------------------------------------------------------
+# Rhino 本地化资源包（必需，2026-10-26 实测补）
+#
+# dex2jar 只转 class，**丢弃 jar 内非 class 资源**；而 Rhino 在抛任何内部错误时都要读
+# org/mozilla/javascript/resources/Messages.properties 做本地化。缺失后果：
+#   书源里任意 @js: 规则一旦出错 → MissingResourceException: Can't find bundle for base
+#   name org.mozilla.javascript.resources.Messages —— 真实错误（TypeError/ReferenceError）
+#   被彻底覆盖，排查方向被误导。
+# 该 jar 由 APK 内同名资源直接打包（见 make-rhino-res.sh），非外部下载。
+# -----------------------------------------------------------------------------
+RHINO_RES_JAR="${RHINO_RES_JAR:-$SCRIPT_DIR/rhino-resources.jar}"
+
 CP="$STUB_JAR:$OUT_DIR"
+if [[ -f "$RHINO_RES_JAR" ]]; then
+  CP="$CP:$RHINO_RES_JAR"
+else
+  echo "WARN: 缺少 Rhino 资源包: $RHINO_RES_JAR（JS 出错时会被 MissingResourceException 覆盖）" >&2
+fi
 if [[ -f "$FIX_JAR" ]]; then
   CP="$FIX_JAR:$CP"
   echo "[build-cp] 已前置 remediation fix.jar: $FIX_JAR" >&2

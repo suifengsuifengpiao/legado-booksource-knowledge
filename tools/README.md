@@ -8,7 +8,7 @@
 >
 > **独立发布包（给其他会话 / 其他 AI）**：`releases/legado-tools_v1.14.10.zip`（2.5MB，解压即用，不需要装技能；**不含 b2**）。
 > B2 真机引擎单独发包：`legado-tools-b2-runtime_v1.14.10.zip`（27MB，含 APK 转出的 4 个 jar + enjarify 修复包 + 已编译 harness，解压即跑）。
-> 下载走 Release 附件（raw 对 >20MB 文件返回 403）：https://gitee.com/z157001/legado-booksource-knowledge/releases/download/v1.14.10-b2/legado-tools-b2-runtime_v1.14.10.zip
+> 下载走 Release 附件（raw 对 >20MB 文件返回 403）：https://gitee.com/z157001/legado-booksource-knowledge/releases/download/v1.14.10-b2.1/legado-tools-b2-runtime_v1.14.10.zip
 > ```bash
 > curl -L -o legado-tools.zip "https://gitee.com/z157001/legado-booksource-knowledge/raw/main/releases/legado-tools_v1.14.10.zip"
 > unzip -o -q legado-tools.zip -d . && python3 legado-tools/validate_booksource.py 你的书源.json
