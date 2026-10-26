@@ -73,6 +73,11 @@ python3 enjarify.py ../b2-work/dex/classes2.dex -o ../b2-work/fix/enjarify-class
 mkdir -p ../b2-work/fix/jar ../b2-work/fix/merged
 cd ../b2-work/fix/merged && unzip -oq ../enjarify-classes4.jar && unzip -oq ../enjarify-classes2.jar
 cd .. && jar cf jar/xpath-fix-enjarify.jar -C merged .
+
+# ⚠️ 必须校验完整性（2026-10-26 踩过：只合并了 33 个 j$/util 类，实跑报
+#    NoClassDefFoundError: j$/util/Collection$-EL）
+unzip -l jar/xpath-fix-enjarify.jar | tail -1                      # 类总数应 ≈4507
+unzip -l jar/xpath-fix-enjarify.jar | grep -c 'j\$/util/'         # 应 ≈418
 ```
 
 产物：`b2-work/fix/jar/xpath-fix-enjarify.jar`（约 4.8MB）。
@@ -236,6 +241,7 @@ unshare -n bash run.sh 2>&1 | grep -o '{"engine".*'
 | `InstantiationError: ...ConcurrentHashMap$CollectionView` | 脱糖 JDK 类被转坏 | 确认 `xpath-fix-enjarify.jar` 含 `j$/util/concurrent/*`（来自 classes2） |
 | `NoClassDefFoundError: android/...` | 桩缺类 | 补 `android-stub/src`，重跑 `android-stub/build.sh` |
 | `MissingResourceException: Can't find bundle for base name org.mozilla.javascript.resources.Messages` | **dex2jar 丢了 Rhino 的非 class 资源** | 跑 `make-rhino-res.sh` 生成 `rhino-resources.jar`，确认它在 classpath 里（§3.5） |
+| `NoClassDefFoundError: j$/util/Collection$-EL`（或其它 `j$/util/*`） | **enjarify 合并 jar 不完整**：只把部分类合进去（实测只剩 33 个 `j$/util/*`，应 418 个），desugar 合成类缺失 | 重新**完整**合并 `enjarify-classes4.jar` + `enjarify-classes2.jar`（先解 4 再解 2，2 覆盖同名），按 §3 末尾两条命令校验类总数≈4507、`j$/util/*`≈418 |
 | `ReferenceError: "result" is not defined` | **JS 作用域没绑 `result`**（真机绑定清单：`source/baseUrl/result/chapter/nextChapterUrl/book/cookie/cache/title`） | 按 §3.6 绑全；**注意真机语义：规则首段的 `result` 初值就是当前内容（mContent）**，不是 null |
 | `VerifyError` / 栈图校验失败 | dex2jar 产物特性 | 运行时加 `-noverify`（`run.sh` 已带） |
 | `ExceptionInInitializerError: (message 为空)` | 该异常 `getMessage()` 恒为 null，只取 SimpleName+Message 会把根因吞掉 | 已修：harness 递归展开 cause 链 + 各层首帧；根因通常是 next row |
