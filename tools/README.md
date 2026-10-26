@@ -5,6 +5,13 @@
 > **同步状态（2026-10-26 20:46）**：本目录 15 个脚本已与技能 `scripts/` **逐文件 md5 一致**。
 > 本次补齐差距：`test_parse.py` / `validate_booksource.py` 从 v1.14.9 旧版更新到含「`ruleContent.replaceRegex` 在 3.25 是活字段、但必须以 `##` 开头；书源顶层 `replaceRegex` 不是 3.25 字段会被 Gson 静默丢弃」的纠错版。
 > 另：`lint/booksource_lint.py`（知识库侧 lint 工具，非技能脚本）新增 `strip_url_options()`。
+>
+> **独立发布包（给其他会话 / 其他 AI）**：`releases/legado-tools_v1.14.10.zip`（2.6MB，解压即用，不需要装技能）。
+> ```bash
+> curl -L -o legado-tools.zip "https://gitee.com/z157001/legado-booksource-knowledge/raw/main/releases/legado-tools_v1.14.10.zip"
+> unzip -o -q legado-tools.zip -d . && python3 legado-tools/validate_booksource.py 你的书源.json
+> ```
+> 包内 `AI-USAGE.md` 是写给 AI 的完整使用指引（下载方式 / 依赖 / 常用命令 / 症状对照表）。
 
 ## 脚本清单
 
