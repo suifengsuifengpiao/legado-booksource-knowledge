@@ -28,6 +28,12 @@ public final class JavaShim {
 
     // ---------------- 加密 / 编码（委托真实 AnalyzeRule → 真实 hutool） ----------------
 
+    // ---- 规则求值转发（真机 java 即 AnalyzeRule，这些方法都可用）----
+    // 2026-10-26 补：此前缺 getString，导致 nextContentUrl 用 `java.getString('#pb_next@href')`
+    // 在 B2 里报 "Cannot find function getString" —— 是 harness 缺陷造成的假失败，不是书源问题。
+    public String getString(String rule) { return analyzeRule.getString(rule); }
+    public String getString(String rule, Object content) { return analyzeRule.getString(rule, content); }
+
     public String md5Encode(String s) { return analyzeRule.md5Encode(s); }
     public String md5Encode16(String s) { return analyzeRule.md5Encode16(s); }
     public String base64Encode(String s) { return analyzeRule.base64Encode(s); }
