@@ -89,7 +89,12 @@ python3 legado-tools/make_probe_source.py --help
 > **注意：`b2/` 真机引擎不在本工具包内。**
 > 本包（`legado-tools_v1.14.10.zip`）只含静态校验工具，解压即用。
 > 需要「JVM 加载 APK 真实 AnalyzeRule」的真机级解析验证时，另下运行时包：
-> `releases/legado-tools-b2-runtime_v1.14.10.zip`（27MB，含 APK 转出的 4 个 jar + enjarify 修复包 + 已编译 harness，**同样解压即跑**）。
+> `legado-tools-b2-runtime_v1.14.10.zip`（27MB，含 APK 转出的 4 个 jar + enjarify 修复包 + 已编译 harness，**同样解压即跑**）：
+> ```bash
+> curl -L -o b2.zip "https://gitee.com/z157001/legado-booksource-knowledge/releases/download/v1.14.10-b2/legado-tools-b2-runtime_v1.14.10.zip"
+> unzip -q b2.zip && cd legado-tools-b2-runtime_v1.14.10 && bash run.sh
+> ```
+> （走 **Release 附件**而不是 raw 直链——Gitee 对 >20MB 的 raw 文件要求登录，匿名下载会 403）
 
 ## 五、遇到具体症状查哪
 
