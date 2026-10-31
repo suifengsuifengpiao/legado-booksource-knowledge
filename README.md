@@ -1,6 +1,9 @@
 # Legado 3.25 书源开发与调试知识库
 
 面向 Legado(阅读3.0) 书源制作、调试、APK 行为核对的跨 AI 知识库。
+
+> **技能包在哪？** 在仓库的 [发行版(Releases)](https://gitee.com/z157001/legado-booksource-knowledge/releases) 页面，**不在**代码标签页的 `releases/` 文件夹里。后者只是 2026-10-26 之前的早期归档，详见 [`releases/README.md`](releases/README.md)。手机网页版顶部没有「发行版」入口，需下拉点「桌面版」或直接输入上面的链接。
+
 任何 AI 助手: 先读 `LEGADO-书源调试知识库.md`(索引+核心文档), 按需查 `official-help/`(官方帮助全文)。
 
 ## 内容清单
