@@ -207,6 +207,7 @@ def check_hardcoded(errors):
     # 三处 version 必须一致: SKILL.md frontmatter / _meta.json / (若有)CHANGELOG 末条。
     # 不能只依赖 CHANGELOG —— 变更日志一旦移出正文, hist 恒为空, 这道检查会静默失效。
     meta_p = os.path.join(SKILL_DIR, "_meta.json")
+    meta_unreadable = False   # v1.15.4: 解析失败须给下游留痕, 否则同一故障会被静默两次
     if os.path.isfile(meta_p):
         try:
             import json as _json
@@ -215,8 +216,16 @@ def check_hardcoded(errors):
             if mv and mv != ver:
                 errors.append("[版本漂移] SKILL.md version=%s, _meta.json version=%s → 两处必须同步"
                               % (ver, mv))
-        except Exception:
-            pass
+        except Exception as _e:
+            # v1.15.4 止漏：此处原是 `pass`。
+            # 缺陷(引擎侧 1.15.3 回执 §三 报出, 我方复现确认)：文件**在**但内容损坏时,
+            # 异常被吞 → mv 未赋值 → 3b/3c 两段检查同时消失, 而末尾照样打印"五项检查全部通过"。
+            # 护栏停摆却自称正常, 比单纯的数据错更糟(第 221 行那条规矩只堵了"文件不在"这一半)。
+            # 故与"文件缺失"同族处理: 数据源不可用一律显式报错, 绝不静默。
+            meta_unreadable = True
+            errors.append(
+                "[版本漂移] _meta.json 存在但无法解析(%s) → 版本漂移检查已失去数据源, 无法判定"
+                % (type(_e).__name__ + ((": " + str(_e)[:60]) if str(_e) else "")))
     else:
         # 数据源消失不能静默：文件不在就整段跳过 = 这道检查随之消失，而自检照样打印"全部通过"。
         # 注：_meta.json 是本技能 .skill 包的组成部分，随包分发；若你是手工建目录、本就没有
@@ -227,6 +236,29 @@ def check_hardcoded(errors):
     if hist and hist[-1][1] != ver:
         errors.append("[SKILL.md] 版本漂移: CHANGELOG 末条写到 %s, 但 version 是 %s"
                       % (hist[-1][1], ver))
+
+    # 3c) display_name 内含的版本号也必须跟上（v1.15.3 新增）
+    # 背景(真事)：version 已改到 1.15.2，display_name 仍写「书源工坊 v1.15.0」，
+    # 我方与引擎侧两侧都没发现——旧检查只比对 version 字段，抓不到展示名里的版本号。
+    # 它不导致功能故障，但技能列表/市场页会把版本号显示错，是"静默不一致"，故报 ERROR。
+    if not meta_unreadable and os.path.isfile(meta_p):
+        try:
+            import json as _json
+            with open(meta_p, encoding="utf-8") as _f:
+                _m = _json.load(_f)
+            _dn = _m.get("display_name") or ""
+            _d = re.search(r"v?(\d+\.\d+\.\d+)", _dn)     # 展示名里没写版本号就跳过
+            if _d and _d.group(1) != ver:
+                errors.append(
+                    "[版本漂移] _meta.json display_name=%r 内含版本 %s, 与 version=%s 不一致 "
+                    "→ 技能市场展示的版本号会对不上；改 version 时须一并改这里"
+                    % (_dn, _d.group(1), ver))
+        except Exception as _e:
+            # 同 3b: 不静默。正常到不了这里(3b 成功解析后本段也会成功)，
+            # 保留显式报错是为了不让 `except: pass` 这个模式留在新增代码里。
+            errors.append(
+                "[版本漂移] _meta.json 无法解析(%s) → display_name 检查已失去数据源, 无法判定"
+                % (type(_e).__name__ + ((": " + str(_e)[:60]) if str(_e) else "")))
 
 
 # ---------------------------------------------------------------- 4) 证据文件随包
@@ -343,7 +375,7 @@ _PITFALLS = """\
 """
 
 
-def _sandbox_files(dirty):
+def _sandbox_files(dirty, broken_meta=False):
     """迷你技能树。dirty=True 时注入多类缺陷, 每类对应一个可被断言的关键词。
 
     **沙盒必须与真实技能结构双向同步**（1.13.28 立，两轮各踩一次才抽象出来）：
@@ -388,7 +420,13 @@ def _sandbox_files(dirty):
         "references/evidence/real.kt": "// 占位\n",
         # dirty 时故意与沙盒 SKILL.md 的 1.0.0 不一致：让「版本漂移」走 _meta.json 比对这条
         # **真实链路**，而不是只靠正文 changelog（真实技能已无正文日志，那是一条假路径）。
-        "_meta.json": '{"version": "9.9.9"}' if dirty else '{"version": "1.0.0"}',
+        # broken_meta：文件**在**但内容是非法 JSON —— v1.15.4 补的反例。
+        #   与 dirty 不是一回事：dirty 是"值不一致"(会报错)，broken 是"不可解析"
+        #   (旧实现在此吞异常 → 整段检查消失而末尾照样打印"五项全部通过")。
+        #   来源：引擎侧 v1.15.3 回执 §三 报出的双方共有缺陷，此处固化以防回归。
+        "_meta.json": ('{"version": "1.0.0", "display_name": "书源工坊 v1.0.0",'
+                       if broken_meta else ('{"version": "9.9.9"}' if dirty
+                                            else '{"version": "1.0.0"}')),
     }
 
 
@@ -455,8 +493,8 @@ def self_test(verbose=True):
         os.makedirs(sd, exist_ok=True)
         shutil.copy2(os.path.abspath(__file__), os.path.join(sd, "self_audit.py"))
 
-        def run(dirty):
-            for rel, text in _sandbox_files(dirty).items():
+        def run(dirty, broken_meta=False):
+            for rel, text in _sandbox_files(dirty, broken_meta).items():
                 fp = os.path.join(tmp, rel)
                 os.makedirs(os.path.dirname(fp), exist_ok=True)
                 with open(fp, "w", encoding="utf-8") as f:
@@ -490,6 +528,17 @@ def self_test(verbose=True):
         lines.append("  反例(注入缺陷应全抓): %d/%d 类命中, exit=%d"
                      % (hit, len(_DIRTY_MARKERS), rc))
 
+        # v1.15.4 新增第三组：数据源「在但坏」。放在 dirty 组之外单独跑，是因为
+        # 一旦把它并进 dirty，_meta.json 变成非法 JSON 后 3b 的"值不一致"分支就不执行了，
+        # 反而会**掩盖**已有的「版本漂移」反例——新增缺陷防线先把旧防线打瞎，得不偿失。
+        rc3, out3 = run(False, broken_meta=True)
+        err3 = [l for l in out3.splitlines() if l.startswith("[ERROR] ")]
+        meta_ok = (rc3 != 0 and any("无法解析" in l for l in err3))
+        ok &= meta_ok
+        lines.append("  畸形 meta(_meta.json 非法 JSON 须报错): %s"
+                     % ("OK exit!=0 且点到「无法解析」" if meta_ok
+                        else "FAIL\n%s" % out3[-300:]))
+
         # 真实基线: 上面两组都是虚拟树, 测不到"本技能此刻到底健康不健康"
         real = _real_baseline()
         real_ok_n = sum(1 for c in real if c[1])
@@ -506,8 +555,8 @@ def self_test(verbose=True):
             for l in lines:
                 print(l)
             print("-" * 62)
-            print("self_audit 自检: 正例 %d/1, 反例 %d/%d, 真实基线 %d/%d → %s"
-                  % (1 if pos_ok else 0, hit, len(_DIRTY_MARKERS),
+            print("self_audit 自检: 正例 %d/1, 反例 %d/%d, 畸形meta %d/1, 真实基线 %d/%d → %s"
+                  % (1 if pos_ok else 0, hit, len(_DIRTY_MARKERS), 1 if meta_ok else 0,
                      real_ok_n, len(real), "通过" if ok else "失败"))
         return 0 if ok else 1
     finally:
