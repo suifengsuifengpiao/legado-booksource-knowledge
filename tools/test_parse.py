@@ -633,6 +633,10 @@ def _jsoup_single(bs, before):
     if typ == "text":
         return [t.parent for t in bs.find_all(string=lambda s: s and len(parts) > 1 and parts[1] in s)
                 if isinstance(t.parent, Tag)]
+    # Legado 语法糖 tag.xxx 可出现在空格分隔选择器的任意位置（如 '.book_box tag.span'）。
+    # bs4 会把 'tag' 当未知标签名而静默返回 0，故在交给 CSS 前先剥掉 'tag.' 前缀。
+    if "tag." in before:
+        before = before.replace("tag.", "")
     return bs.select(_quote_attr(before))  # default: 整段当 CSS(给属性值补引号以对齐 Jsoup)
 
 
@@ -650,6 +654,38 @@ def _strip_rule_prefix(rule):
 
 _IDX_RE = re.compile(r"\[(\d+)\]")
 
+
+# --- Legado 3.25 点号/冒号索引（.0 / :1:2:4），与 findIndexSet 对齐 -------------
+# 现有 _IDX_RE 只认 [0] 方括号写法；Legado 书源普遍用 "span.0" / "span.1:2:4"，
+# 不补这段会把合法规则当 CSS 类名交给 bs4，报 "Malformed class selector"。
+_DOT_IDX_RE = re.compile(r"([.:])((?:-?\d+[.:]?)+)$")
+
+def _strip_dot_index(seg):
+    """把 'span.1:2:4' 拆成 ('span', [1,2,4])；'a.0' -> ('a',[0])；无索引 -> (seg, None)。
+    仅识别段尾由数字与 . : 组成的串，避免误伤 '.book_box' 这类类选择器。"""
+    m = _DOT_IDX_RE.search(seg)
+    if not m:
+        return seg, None
+    head = seg[:m.start()]
+    if not head or head.endswith(('.', ':', '#', '[')):
+        return seg, None
+    raw = m.group(0)[1:]                      # 去掉首个分隔符
+    parts = [p for p in re.split(r"[.:]", raw) if p not in ("",)]
+    if not parts or not all(re.fullmatch(r"-?\d+", p) for p in parts):
+        return seg, None
+    return head, [int(p) for p in parts]
+
+def _apply_dot_index(elements, idxs):
+    """按 Legado 语义取多个索引（保持规则书写顺序，越界跳过）。"""
+    if not idxs:
+        return elements
+    out = []
+    for i in idxs:
+        if -len(elements) <= i < len(elements) and elements:
+            out.append(elements[i])
+    return out
+
+# ---------------------------------------------------------------------------
 
 def _strip_index(seg):
     """把段拆成 (选择器, 数字索引或 None)。只识别末端 [数字] 索引(如 li[0] / div[2])，
@@ -678,14 +714,20 @@ def _jsoup_select_elements(node, core):
     res = [node]
     for i, seg in enumerate(segs):
         selector, idx = _strip_index(seg)
+        _dot = None
+        if idx is None:
+            selector, _dot = _strip_dot_index(selector)
         if selector in ("text", "html") or selector.startswith("@"):
             if i == len(segs) - 1:
                 break
             continue
+        # Legado 语法糖: tag.xxx 取子树中的该标签（非 CSS 标签名 tag）
+        if selector.startswith("tag."):
+            selector = selector[4:]
         nxt = []
         for el in res:
             nxt.extend(_jsoup_single(el, selector))
-        res = _apply_index(nxt, idx)
+        res = _apply_dot_index(nxt, _dot) if _dot else _apply_index(nxt, idx)
         if not res:
             break
     return res
@@ -810,16 +852,22 @@ def eval_rule_jsoup(root, expr):
                 branch_texts = []
                 for i, s in enumerate(segs):
                     selector, idx = _strip_index(s)
+                    _dot = None
+                    if idx is None:
+                        selector, _dot = _strip_dot_index(selector)
                     is_last = (i == len(segs) - 1)
                     if is_last:
                         # 最后一段恒为取值指示符: @attr 取属性 / text 取文本 / html 取 html /
                         # 其余(如 content/href)当作属性名(Legado og 取值标准写法)
                         branch_texts.extend(_jsoup_extract(res, selector))
                         break
+                    # Legado 语法糖: tag.xxx 取子树中的该标签（非 CSS 标签名 tag）
+                    if selector.startswith("tag."):
+                        selector = selector[4:]
                     nxt = []
                     for el in res:
                         nxt.extend(_jsoup_single(el, selector))
-                    res = _apply_index(nxt, idx)
+                    res = _apply_dot_index(nxt, _dot) if _dot else _apply_index(nxt, idx)
                     if not res:
                         break
                 # 每分支的 ## 清洗只作用于本分支结果, 再并入并集(避免后分支覆盖前分支)

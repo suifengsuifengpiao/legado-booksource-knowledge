@@ -127,6 +127,14 @@ def do_fetch(sess, url, method="GET", data=None, referer=None, timeout=20, chars
         h["Cookie"] = EXTRA_COOKIE
     try:
         if method.upper() == "POST":
+            # 3.25 的 POST body 由 OkHttp FormBody.Builder 构造
+            # （classes3.dex `Lio/legado/app/help/http/r0;->f` 实证: FormBody$Builder + addEncoded），
+            # FormBody 的 Content-Type 恒为 application/x-www-form-urlencoded。
+            # curl_cffi 传 str 时不会自动补这个头，PHP 的 $_POST 因此解析不出参数——
+            # 表现为「HTTP 200、页面结构正常、关键词为空、0 条结果」，
+            # 会让本来能用的 POST 书源被误判成规则写错。显式补齐，与真机一致。
+            if isinstance(data, str):
+                h.setdefault("Content-Type", "application/x-www-form-urlencoded")
             resp = sess.post(url, headers=h, data=data, timeout=timeout, verify=False)
         else:
             resp = sess.get(url, headers=h, timeout=timeout, verify=False)

@@ -1052,9 +1052,81 @@ def check_source(src, idx, errors, warns, notes):
     check_url_options(src, label, errors, warns, notes)
     check_rule_pitfalls(src, label, errors, warns, notes)
     _check_js_syntax(src, label, errors, warns, notes)
+    check_verify_coverage(src, label, errors, warns, notes)
 
     if not has_any_rule:
         errors.append("[%s] 没有任何解析区域(ruleSearch/ruleBookInfo/ruleToc/ruleContent)，书源不可用" % label)
+
+
+def check_verify_coverage(src, label, errors, warns, notes):
+    """本地验证覆盖率：点出 test_parse.py 「验不到但会显示通过」的规则。
+
+    设立缘由（v1.15.2，来读读小说调试）：那次我用 test_parse.py 验证全部字段，
+    结果显示通过，但其中 `tag.span` 那类写法是被 bs4 当未知标签名**静默返回 0** 的——
+    看起来像"字段为空"，实际是工具盲区。同类问题反复出现，故把"验不到"显式化。
+
+    分级原则（宁可少报，不可误报）：
+      - 会**报错**的语法不在此列（用户能看见 [ERR]，自己会查）;
+      - 只有**静默吞掉 / 只验一半**的才报，因为那才会让人误以为"已全部验证"。
+
+    实测依据（2026-10-31，详情页样本，test_parse.eval_rule_jsoup）：
+      '.name@text && .NOPE_XYZ@text'  -> ['剑来']   ← 后半段根本不存在，却判命中
+      '.NOPE_XYZ@text && .name@text'  -> ['剑来']   ← 前半段不存在，仍判命中
+      '.name@text || .NOPE_XYZ@text'  -> ['剑来']   ← 并联语义未实现
+    即 Legado 的 && / || 在本地是「被吞掉」而非「被拒绝」。
+    """
+    rules = list(_iter_rules(src))
+    parallel = []     # && / || 并联
+    idx_mix = []      # 点号+逗号混合索引（工具已知边界，非书源错误）
+    js_term = []      # JS 终结规则（本地不执行）
+
+    for pos, k, v in rules:
+        raw = v.strip()
+        if not raw:
+            continue
+
+        # JS 终结：整条是 JS，或末段以 <js> 结尾 → 本地无法求值
+        head = raw
+        if raw.startswith("@js:") or raw.startswith("<js>") or "<js>" in raw:
+            js_term.append(pos)
+            head = raw.split("<js>")[0] if "<js>" in raw else ""
+            if raw.startswith("@js:"):
+                head = ""
+        if not head:
+            continue
+        # ## 之后是替换正则/替换串，不参与选择器判断
+        sel = head.split("##")[0]
+
+        if "&&" in sel or "||" in sel:
+            parallel.append(pos)
+        # 例: '.book_box tag.span.0,2' —— Legado 用 , 做多索引，本地未实现
+        if re.search(r"[.:]\s*-?\d+\s*,\s*-?\d+", sel):
+            idx_mix.append(pos)
+
+    if parallel:
+        # 级别说明：&& / || 是 Legado 合法语法，书源本身未必有错（手机小说等已真机验证通过）。
+        # 这里要拦的是「拿本地结果当已验证」这个动作，不是书源本身，故用 NOTE 而非 WARN，
+        # 避免护栏把"验证方法不可靠"说成"书源有问题"（v1.14.1 曾因误报反噬，勿重蹈）。
+        notes.append(
+            "[%s] %d 处规则用了 && / || 并联 (%s%s)。"
+            "**test_parse.py 不实现并联语义，只按单条求值且会把另一段吞掉**——"
+            "实测 '.NOPE_XYZ@text&&.name@text' 仍判命中，即坏掉的那段不会暴露。"
+            "书源本身未必有错，但这些字段的本地结果**不能作为已验证的依据**，"
+            "须分段各自验证，或用 verify_booksource.py 走真机取数。"
+            % (label, len(parallel), ", ".join(parallel[:3]), " 等" if len(parallel) > 3 else ""))
+
+    if idx_mix:
+        notes.append(
+            "[%s] %d 处规则用了「点号+逗号」混合索引 (%s%s)：这是 test_parse.py 的已知边界"
+            "（`td.0,2` 会报 Malformed class selector），**不是书源写错**，真机按 findIndexSet 正常解析。"
+            "看到该字段 [ERR] 请勿改书源，改用 verify_booksource.py 复核。"
+            % (label, len(idx_mix), ", ".join(idx_mix[:3]), " 等" if len(idx_mix) > 3 else ""))
+
+    if js_term:
+        notes.append(
+            "[%s] %d 处规则以 JS 终结 (%s%s)：本地 test_parse.py 不执行 JS，"
+            "这些字段的本地结果仅供参考，须另用 node 跑同一段 JS 才能算验证。"
+            % (label, len(js_term), ", ".join(js_term[:3]), " 等" if len(js_term) > 3 else ""))
 
 
 def main():
