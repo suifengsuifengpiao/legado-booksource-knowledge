@@ -574,3 +574,127 @@ xs5200 实证：站点按屏幕宽度/触摸能力检测强制跳 m 域，改 UA
 正解：源站给的是日期串时直接取字段（`$.updateDate`），不要套 `java.timeFormat`。
 
 同案附坑：`lastUpdateChapterName` 这类字段名别照抄别的站——该接口根本没有此字段，硬抄则永远空；补字段前先看接口真实返回的 key。
+
+
+---
+
+## 🔴 新坑补遗（2026-10-31 · 书源侧提交包合并）
+
+> 来源：书源侧 2026-10-31 提交包（技能 v1.15.0）。N10 对应的引擎侧反编译原文已由引擎侧独立复核。
+
+### 坑 N10：`@html` ≠ innerHTML：3.25 会先删 `<script>`/`<style>` 再取 outerHtml
+
+**症状**：本地验「正文 6088 字符全绿」，真机正文为空，诊断容器长度恰好等于模板提示语长度（本站 127）。
+
+**根因**（`AnalyzeByJSoup.getResultLast` 反编译原文）：
+
+```kotlin
+"html" -> {
+    elements.select("script").remove()
+    elements.select("style").remove()
+    textS.add(elements.outerHtml())
+}
+"all"  -> textS.add(elements.outerHtml())
+```
+
+**判据**（30 秒自查）：
+
+| 检查 | 说明 |
+|---|---|
+| 正文是否以 `<script>document.writeln(...)</script>` 为载体 | 是 → 必须用 `@all` |
+| 真机诊断的容器长度是否≈提示语长度 | 是 → 就是这条 |
+| 本地 `test_parse` 是否只跑了 innerHTML 语义 | 是 → 本地结论不可信，换真 Jsoup 通道 |
+
+**修法**：正文载体是脚本时用 `@all`；否则 `@html` 仍可用（它确实会去掉脚本噪声）。
+
+**证据**：百草露 m.baicaolu.com 2026-10-31 实证，见 `cases/站点档案_百草露.md` §3.3。
+
+**工具链同步**（已随技能 v1.15.0 落地）：
+- `scripts/jsoup_eval/JsoupRuleEval.java`：`html` 改为「删 script/style 后**单条** outerHtml」，新增 `all`
+- `test_parse.py`：末段 `html`/`all` 强制走真 Jsoup 通道
+- `evals/jsoup_realdevice_equiv.py`：新增 script 载体夹具与 4 条 golden
+
+---
+
+### 坑 N11：正文分页变量「跨章陷阱」：末页的下一页链接指向下一章
+
+**症状**：第 1 章只读到一半就结束；若把页面里的「下一页变量」直接当 `nextContentUrl`，Legado 会把**整本书**拼进第 1 章。
+
+**根因**：很多站把「下一页」与「下一章」合并成一个变量（如百草露的 `hhekgsv`）：
+
+```
+第1页 hhekgsv → 第2页
+第2页 hhekgsv → 第2章   ← 跨章了
+```
+
+**判据**：分页 URL 一定带「页」的形态（`_N.html` / `?p=N`），章 URL 不带。**按形态判定，不要按章 id 前缀判**（百草露的 `iytcgscb` 与 `iytcgsci` 前 8 字符相同，前缀比较会误判）。
+
+**修法（自包含拼页，绕开 `nextContentUrl` 求值语义未实证的风险）**：
+
+```js
+var m = html.match(/hhekgsv\s*=\s*['"]([^'"]+)['"]/);
+if(!m){ break; }
+if(!/_\d+\.html(\?|#|$)/.test(m[1])){ break; }   // ★ 只跟随同章下一页
+```
+
+配套三件：`seen{}` 去重防回环、`g < 8` 页数上限、`java.connect` 失败即退回第 1 页结果（保证不比修复前更差）。
+
+**为什么不直接用 `nextContentUrl`**：3.25 里它的求值对象（整页 Html 还是正文容器）无实证，而这类差异正是「本地全绿真机空」的高发区。自包含写法每一步都能本地 Rhino 验证。
+
+**证据**：百草露 2026-10-31，23 段/1196 字 → 45 段/2716 字，见 `cases/站点档案_百草露.md` §3.4。
+
+---
+
+### 坑 N12：搜索「关键字最少 N 个字符」——数的是 **UTF-8 字节**，且 `trim()` 只删半角
+
+**症状**：搜 2 个汉字（「系统」）被拒，提示「关键字最少 10 个字符」。
+
+**根因**：
+
+1. PHP `strlen()` 数字节：中文 3 字节/字，「系统」= 6 字节，不过 10 字节闸。
+2. `trim()` 默认字符集只含半角空白，**全角空格 U+3000 不会被删**。
+
+**修法**：用全角空格补足，但**必须写百分号编码**：
+
+| 写法 | 结果 |
+|---|---|
+| `{key}　　`（字面 U+3000） | ❌ 被 Legado 发请求前 trim 掉，真机 body 只剩 `{key}` |
+| `{key}%E3%80%80%E3%80%80%E3%80%80` | ✅ 编码形态不被 trim，服务端解码为 3×U+3000（9 字节）+ 1 汉字 → 过闸 |
+
+**通用结论**：「服务端按字节校验 + 客户端会 trim」的组合，空白一律用 `%XX` 编码写。
+
+**证据**：wap.shoujixs.net 2026-10-31，三关键词各 20 条真结果，用户真机确认。
+
+---
+
+### 坑 N13：`Packages.java.*` 会替换全局 `java`；Rhino 的 `ConsString` 不能当 `java.lang.String` 传
+
+**症状 A**：用过 `Packages.java.net.*` 之后，`java.log()` / `java.post()` 报 **"not a function"**。
+**症状 B**：把 Map 当参数传 Java 方法时报 **`ConstString cannot be cast to java.lang.String`**。
+
+**根因**：
+
+- A：访问 `Packages.java.*` 的成员会把全局 `java` 重绑成 `JavaPackage`，之后 `java.xxx` 不再是方法。
+- B：Rhino 的拼接字符串是 `ConsString`，不是 `java.lang.String`；走 Map 参数时会强转失败。
+
+**修法**：
+
+```js
+var J = java;                                  // ① 文件开头先存住
+var log = function(s){ try{ J.log(s); }catch(e){} };
+
+conn.setRequestProperty("Content-Type", "..."); // ② 请求头逐个传参，不要组 Map
+```
+
+**证据**：八叉书库 bcshuku.com 三轮迭代，见 `cases/站点档案_八叉书库.md` §3/§4。
+
+---
+
+### 附：本轮未升规则的观察（**不建议立刻升铁律**）
+
+| 观察 | 为什么不升 |
+|---|---|
+| 站点把「下一页」按钮做成 JS 后置（`setTimeout` 1.5 秒才写 onclick） | 只影响「用按钮文本取下一页」的写法，`hhekgsv` 变量类站点不受影响；样本 1 个 |
+| `_N` 越界页被服务端**钳回第 1 页**而非 404 | 只在「按页码递增」的分页写法里是坑；本轮改用「跟随服务端给的下一页」后不触发；样本 1 个 |
+
+> 按纪律：**一次偶发不扩成通用禁令**，先记为观察，出现第 2 个独立样本再走 `verified-improvement` 六字段模板。

@@ -46,6 +46,7 @@ import argparse
 import shutil
 import subprocess
 import base64
+import copy
 import tempfile
 from collections import Counter
 
@@ -702,7 +703,20 @@ def _jsoup_extract(res, last_seg):
     if ls == "text":
         return [el.get_text(strip=True) for el in res if isinstance(el, Tag)]
     if ls == "html":
-        return [el.decode_contents() for el in res if isinstance(el, Tag)]
+        # 3.25 真机语义(AnalyzeByJSoup.getResultLast): 先删 script/style 再取 outerHtml。
+        # 旧实现返回 innerHTML 且保留 script, 使「正文以 <script> 为载体」的站点本地全绿、真机空。
+        out = []
+        for el in res:
+            if not isinstance(el, Tag):
+                continue
+            c = copy.deepcopy(el)
+            for t in c.find_all(["script", "style"]):
+                t.decompose()
+            out.append(str(c))
+        return out
+    if ls == "all":
+        # "all" 不删 script/style, 原样返回 outerHtml —— 需要脚本内容作载体的站点必须用它。
+        return [str(el) for el in res if isinstance(el, Tag)]
     # 其余当作属性名(attr); 元素无此属性时回退取文本, 避免误空
     out = []
     for el in res:
@@ -773,8 +787,12 @@ def eval_rule_jsoup(root, expr):
             try:
                 core, ops = split_regex(branch)
                 core2, _rev = _strip_rule_prefix(core)
-                # 扩展属性选择器(~= 正则匹配): bs4 无法等价建模, 走真 Jsoup 通道求值
-                if _LEGADO_EXT_ATTR.search(core2) and _jsoup_engine_available():
+                # 扩展属性选择器(~= 正则匹配): bs4 无法等价建模, 走真 Jsoup 通道求值。
+                # 末段 html/all 同样必走真 Josup: 3.25 的 "html" 会先删 script/style 再取 outerHtml,
+                # bs4 实现难以逐字对齐, 而这类差异正是「本地全绿、真机正文空」的成因。
+                _last_seg = core2.split("@")[-1].strip() if "@" in core2 else ""
+                _need_jsoup = bool(_LEGADO_EXT_ATTR.search(core2)) or _last_seg in ("html", "all")
+                if _need_jsoup and _jsoup_engine_available():
                     jvals, jerr = _jsoup_real_eval(str(root), core2)
                     if jerr is None:
                         if ops:
@@ -1510,7 +1528,10 @@ def jsoup_self_test(verbose=False):
     check(".block@ul@li@a@href && .block@ul@nonexist@a@href", "vals", 50, "&& 备选链: 首段命中优先")
     check(".block@ul@li@a@href || .info_chapters@ul@li@a@href", "vals", 70, "|| 并集")
     check(".block@ul@li@a@text", "vals", 50, "text 指示符取值")
-    check(".block@ul@li@a@html", "vals", 50, "html 指示符取值")
+    # 3.25 真机 "html" = 删 script/style 后取 elements.outerHtml(), 是**单条**拼接结果;
+    # 旧期望 50(逐元素)与真机不符, 会掩盖「@html 拿到去壳空容器」这类故障(百草露实证)。
+    check(".block@ul@li@a@html", "vals", 1, "html 指示符(真机单条outerHtml)")
+    check(".block@ul@li@a@all", "vals", 1, "all 指示符(outerHtml 不删script)")
     check("class.block@ul@li", "nodes", 50, "class. 前缀")
     check("tag.a@href", "vals", 70, "tag. 前缀")
     check("id.wrap", "nodes", 1, "id. 前缀")

@@ -1,0 +1,52 @@
+[
+  {
+    "bookSourceComment": "百草露小说 m.baicaolu.com 书源。静态站（笔趣阁模板）。两种正文形态（Base64 混淆 / 明文段落）均已兼容。站点搜索时会下发 60 秒限流 Cookie（search_time），带此 Cookie 再请求会返回空列表或空壳页；本源已在搜索/详情/目录/正文请求前自动清除该 Cookie，无需手动清。生成：2026-10-31，规则基于当日实测页面样本。\n\n2026-10-31 修复：chapterUrl 由 `href,{\"webView\":true,\"webWait\":3000}` 改为 `href`（原写法把行内选项混进规则串，URL 求值为空 → 全部章节回退 baseUrl=目录页 → 正文容器不存在 → 内容为空）；正文 base64 解码改为纯 JS 实现（原 java.base64Decode 在 3.25 是两参签名，单参调用会抛异常）。\n\n2026-10-31 二修（正文仍空，日志「html长度=127,base64块=0」）：根因是 3.25 真机的 `@html` 会先 `select(\"script\").remove()` 再取 outerHtml（AnalyzeByJSoup.getResultLast 实证），而本站正文全部藏在 `<script>document.writeln(混淆对象.mg('base64'))</script>` 里 —— 用 `@html` 等于先把正文删干净，只剩「请退出浏览器阅读模式」提示，容器恰好 127 字符。改为 `@all`（outerHtml，不删 script）后 13 章实测 9 章出正文、4 章站点自身空页。\n\n2026-10-31 三修（正文只到第1页，后续「下一页」不加载）：本站章节**分页**——标题形如「第1章 年夜（第1页）」，下一页 URL 为 `章id_页码.html`（第2页 = iytcgscb_1.html），变量写在页头脚本 `var hhekgsv='...'` 里，且**末页的 hhekgsv 会直接指向下一章**（iytcgscb_1 的 hhekgsv = 第2章 iytcgsci.html）。若照搬 hhekgsv 当下一页，会把整本书拼进第1章。修法：正文规则内自包含拼页——第1页正文仍从容器取，再用 java.connect 读整页取 hhekgsv，**只跟随 `_数字.html` 形态（同章下一页）**，跨章/末页立即停止；最多 8 页 + seen 去重防回环。实测第1章由 23 段/1196 字 → 45 段/2716 字（第2页 22 段/1519 字已并入），交界处「…就走开了。」→「老爸，她们都说完了…」连贯。",
+    "bookSourceGroup": "小说 书源",
+    "bookSourceName": "百草露小说",
+    "bookSourceType": 0,
+    "bookSourceUrl": "https://m.baicaolu.com",
+    "enabled": true,
+    "enabledCookieJar": true,
+    "enabledExplore": true,
+    "exploreUrl": "[{\"title\":\"📖 最近更新 📖\",\"url\":\"\",\"style\":{\"layout_flexGrow\":1,\"layout_flexBasisPercent\":1}},{\"title\":\"全部\",\"url\":\"/class/lastupdate_0_0_0_{{page}}.html\",\"style\":{\"layout_flexGrow\":1,\"layout_flexBasisPercent\":0.25}},{\"title\":\"玄幻\",\"url\":\"/class/lastupdate_1_0_0_{{page}}.html\",\"style\":{\"layout_flexGrow\":1,\"layout_flexBasisPercent\":0.25}},{\"title\":\"武侠\",\"url\":\"/class/lastupdate_2_0_0_{{page}}.html\",\"style\":{\"layout_flexGrow\":1,\"layout_flexBasisPercent\":0.25}},{\"title\":\"都市\",\"url\":\"/class/lastupdate_3_0_0_{{page}}.html\",\"style\":{\"layout_flexGrow\":1,\"layout_flexBasisPercent\":0.25}},{\"title\":\"军史\",\"url\":\"/class/lastupdate_4_0_0_{{page}}.html\",\"style\":{\"layout_flexGrow\":1,\"layout_flexBasisPercent\":0.25}},{\"title\":\"网游\",\"url\":\"/class/lastupdate_5_0_0_{{page}}.html\",\"style\":{\"layout_flexGrow\":1,\"layout_flexBasisPercent\":0.25}},{\"title\":\"科幻\",\"url\":\"/class/lastupdate_6_0_0_{{page}}.html\",\"style\":{\"layout_flexGrow\":1,\"layout_flexBasisPercent\":0.25}},{\"title\":\"灵异\",\"url\":\"/class/lastupdate_7_0_0_{{page}}.html\",\"style\":{\"layout_flexGrow\":1,\"layout_flexBasisPercent\":0.25}},{\"title\":\"其他\",\"url\":\"/class/lastupdate_8_0_0_{{page}}.html\",\"style\":{\"layout_flexGrow\":1,\"layout_flexBasisPercent\":0.25}},{\"title\":\"📖 排行榜 📖\",\"url\":\"\",\"style\":{\"layout_flexGrow\":1,\"layout_flexBasisPercent\":1}},{\"title\":\"日点击\",\"url\":\"/class/dayvisit_0_0_0_{{page}}.html\",\"style\":{\"layout_flexGrow\":1,\"layout_flexBasisPercent\":0.25}},{\"title\":\"周点击\",\"url\":\"/class/weekvisit_0_0_0_{{page}}.html\",\"style\":{\"layout_flexGrow\":1,\"layout_flexBasisPercent\":0.25}},{\"title\":\"月点击\",\"url\":\"/class/monthvisit_0_0_0_{{page}}.html\",\"style\":{\"layout_flexGrow\":1,\"layout_flexBasisPercent\":0.25}},{\"title\":\"总点击\",\"url\":\"/class/allvisit_0_0_0_{{page}}.html\",\"style\":{\"layout_flexGrow\":1,\"layout_flexBasisPercent\":0.25}},{\"title\":\"总推荐\",\"url\":\"/class/allvote_0_0_0_{{page}}.html\",\"style\":{\"layout_flexGrow\":1,\"layout_flexBasisPercent\":0.25}},{\"title\":\"总收藏\",\"url\":\"/class/goodnum_0_0_0_{{page}}.html\",\"style\":{\"layout_flexGrow\":1,\"layout_flexBasisPercent\":0.25}}]",
+    "header": "{\"User-Agent\":\"Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36\",\"Referer\":\"https://m.baicaolu.com/\"}",
+    "lastUpdateTime": 1761903000000,
+    "respondTime": 5000,
+    "ruleBookInfo": {
+      "author": "[property=\"og:novel:author\"]@content",
+      "coverUrl": "[property=\"og:image\"]@content",
+      "intro": "[property=\"og:description\"]@content",
+      "kind": "[property=\"og:novel:category\"]@content&&[property=\"og:novel:status\"]@content&&[property=\"og:novel:update_time\"]@content",
+      "lastChapter": "[property=\"og:novel:latest_chapter_name\"]@content",
+      "name": "[property=\"og:novel:book_name\"]@content",
+      "tocUrl": "text.章节目录@href"
+    },
+    "ruleContent": {
+      "content": "id.txt@all<js>\n(function(){\n  try{\n    var MAP = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';\n    function d64(x){\n      var t = String(x).replace(/[^A-Za-z0-9+\\/]/g, '');\n      var buf = 0, bits = 0, bs = [], i, v;\n      for(i = 0; i < t.length; i++){\n        v = MAP.indexOf(t.charAt(i));\n        if(v < 0){ continue; }\n        buf = (buf << 6) | v;\n        bits += 6;\n        if(bits >= 8){ bits -= 8; bs.push((buf >> bits) & 0xFF); }\n      }\n      var r = '', k = 0, b0, b1, b2, b3, cp;\n      while(k < bs.length){\n        b0 = bs[k++];\n        if(b0 < 0x80){ r += String.fromCharCode(b0); }\n        else if(b0 < 0xE0){ b1 = bs[k++]; r += String.fromCharCode(((b0 & 0x1F) << 6) | (b1 & 0x3F)); }\n        else if(b0 < 0xF0){ b1 = bs[k++]; b2 = bs[k++]; r += String.fromCharCode(((b0 & 0x0F) << 12) | ((b1 & 0x3F) << 6) | (b2 & 0x3F)); }\n        else { b1 = bs[k++]; b2 = bs[k++]; b3 = bs[k++]; cp = ((b0 & 0x07) << 18) | ((b1 & 0x3F) << 12) | ((b2 & 0x3F) << 6) | (b3 & 0x3F); cp -= 0x10000; r += String.fromCharCode(0xD800 + (cp >> 10), 0xDC00 + (cp & 0x3FF)); }\n      }\n      return r;\n    }\n    function blobs(h){\n      var re = /writeln\\([^'\"]*['\"]([A-Za-z0-9+\\/=]+)['\"]/g, m, o = '';\n      while((m = re.exec(h)) !== null){ o += d64(m[1]); }\n      return o;\n    }\n    var bu = String(baseUrl || '');\n    var origin = (bu.match(/^https?:\\/\\/[^\\/]+/) || [''])[0] || 'https://m.baicaolu.com';\n    function abs(u){ return /^https?:/i.test(u) ? u : origin + (u.charAt(0) === '/' ? '' : '/') + u; }\n    var url = bu.split('#')[0];\n    var texts = [], g = 0, seen = {};\n    while(url && g < 8){\n      g++;\n      if(seen[url]){ break; }\n      seen[url] = 1;\n      var html;\n      if(g === 1){\n        html = String(result);\n        if(html.indexOf('hhekgsv') < 0){\n          try { html = String(java.connect(url).body()); } catch(e){ html = String(result); }\n        }\n      } else {\n        try { html = String(java.connect(url).body()); } catch(e){ html = ''; }\n      }\n      if(!html){ break; }\n      var t = blobs(html);\n      if(t){ texts.push(t); }\n      var m = html.match(/hhekgsv\\s*=\\s*['\"]([^'\"]+)['\"]/);\n      if(!m){ break; }\n      var nx = m[1];\n      if(!/_\\d+\\.html(\\?|#|$)/.test(nx)){ break; }\n      var nurl = abs(nx);\n      if(nurl === url){ break; }\n      url = nurl;\n    }\n    var raw = texts.join('\\n');\n    if(raw.replace(/\\s+/g, '') === ''){\n      if(String(result).indexOf('内容正在更新') > -1){ return '本章站点暂无正文：页面提示「内容正在更新，请稍后查看」（非书源问题）'; }\n      return '诊断[页数=' + texts.length + ',无base64块,url=' + bu + ']';\n    }\n    var out = raw.replace(/<p[^>]*>/g, '\\n').replace(/<\\/p>/g, '\\n').replace(/<br\\s*\\/?>/g, '\\n').replace(/<[^>]+>/g, '');\n    var lines = out.split('\\n'), keep = [], j, tt;\n    for(j = 0; j < lines.length; j++){\n      tt = lines[j].replace(/\\s+/g, '');\n      if(tt === ''){ continue; }\n      if(tt.indexOf('请退出浏览器阅读模式') >= 0){ continue; }\n      var t2 = lines[j].trim();\n      if(keep.length > 0 && keep[keep.length-1] === t2){ continue; }\n      keep.push(t2);\n    }\n    if(keep.length === 0){ return '本章站点暂无正文'; }\n    return keep.join('\\n');\n  }catch(e){\n    return '正文解析异常: ' + e;\n  }\n})()\n</js>",
+      "replaceRegex": "##(百草露小说|www\\.[\\w.\\-/]+)"
+    },
+    "ruleExplore": {
+      "author": "class.s4@text",
+      "bookList": "class.sort_list@li",
+      "bookUrl": "class.s2@tag.a@href",
+      "kind": "class.s1@text##[\\[\\]]",
+      "lastChapter": "class.s2@tag.a@title##最新章节：",
+      "name": "class.s2@tag.a@text"
+    },
+    "ruleSearch": {
+      "author": "class.s5@text##^\\s*",
+      "bookList": "class.sort_list@li",
+      "bookUrl": "class.s2@tag.a@href",
+      "checkKeyWord": "白蛇夫君",
+      "name": "class.s2@tag.a@text"
+    },
+    "ruleToc": {
+      "chapterList": "class.chapter-list@li@tag.a",
+      "chapterName": "text##\\s*$",
+      "chapterUrl": "href",
+      "nextTocUrl": "option@value"
+    },
+    "searchUrl": "https://m.baicaolu.com/search.html,{\"method\":\"POST\",\"body\":\"s={{key}}\",\"charset\":\"utf-8\",\"js\":\"(function(){cookie.removeCookie('https://m.baicaolu.com');return java.url})()\"}",
+    "weight": 0
+  }
+]

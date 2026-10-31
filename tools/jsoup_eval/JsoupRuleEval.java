@@ -61,7 +61,26 @@ public class JsoupRuleEval {
         List<String> out = new ArrayList<>();
         if (seg.startsWith("@")) { String a = seg.substring(1); for (Element e: els) out.add(e.attr(a)); return out; }
         if (seg.equals("text")) { for (Element e: els) out.add(e.text()); return out; }
-        if (seg.equals("html")) { for (Element e: els) out.add(e.html()); return out; }
+        // 3.25 真机语义(AnalyzeByJSoup.getResultLast): "html" 先删 script/style 再取 outerHtml。
+        // 早期本地实现返回 innerHtml 且不删 script —— 与真机不一致, 会让「正文藏在 <script> 里」的站点
+        // 本地全绿、真机拿到去壳后的空容器(百草露 2026-10-31 实证: 本地 6088 字符, 真机 127 字符)。
+        // 注意: 真机是 **一次性** 把整个 Elements 的 outerHtml 拼成 **单条** 结果
+        // (getResultLast 里 textS.add(elements.outerHtml())), 不是逐元素各出一条。
+        if (seg.equals("html")) {
+            Elements copy = new Elements();
+            for (Element e: els) copy.add(e.clone());
+            copy.select("script").remove();
+            copy.select("style").remove();
+            out.add(copy.outerHtml());
+            return out;
+        }
+        // "all" 不删 script/style, 返回 outerHtml —— 需要脚本内容作载体的站点必须用它。
+        if (seg.equals("all")) {
+            Elements copy = new Elements();
+            for (Element e: els) copy.add(e.clone());
+            out.add(copy.outerHtml());
+            return out;
+        }
         for (Element e: els) out.add(e.hasAttr(seg) ? e.attr(seg) : e.text());
         return out;
     }
