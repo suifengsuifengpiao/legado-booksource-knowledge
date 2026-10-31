@@ -584,6 +584,9 @@ xs5200 实证：站点按屏幕宽度/触摸能力检测强制跳 m 域，改 UA
 
 ### 坑 N10：`@html` ≠ innerHTML：3.25 会先删 `<script>`/`<style>` 再取 outerHtml
 
+> ⚖️ **本条已升技能铁律 27**（`references/pitfalls.md`）。理由：它会**静默**产生「本地全绿」的假安全感，比普通坑高一级——文档记事实，工具决定你信不信这个事实。
+> 引擎侧 2026-10-31 独立复核：定向反编译 `io.legado.app.model.analyzeRule.AnalyzeByJSoup#getResultLast` 见 `"html"` / `"all"` 两分支原文；本地构造「正文在 script 里」页面实测 `#txt@html`=97 字符（script 全删）、`#txt@all`=273 字符（2 个 script 保留）。
+
 **症状**：本地验「正文 6088 字符全绿」，真机正文为空，诊断容器长度恰好等于模板提示语长度（本站 127）。
 
 **根因**（`AnalyzeByJSoup.getResultLast` 反编译原文）：
