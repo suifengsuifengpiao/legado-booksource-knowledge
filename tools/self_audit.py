@@ -257,7 +257,15 @@ def check_hardcoded(errors, notices=None):
             # 它只是**段数不够**。归进"跳过"= 检查器以为自己判过了。
             # 与本文件近三轮修的是同一族：样本不合预期 → 静默跳过 → 绿。
             # 来源：引擎侧 v1.15.4 回执 §五 第 6 条（他喂了六种形态，这条是双方都没提的）。
-            _d = re.search(r"v?(\d+(?:\.\d+)+)", _dn)     # 真没写任何版本号才跳过
+            #
+            # v1.15.6：`v?` 前缀可选 ⇒ 等价于"版本号 = 展示名里第一个数字串"。
+            # 日期排在版本前面（`2026.11.01 v1.15.5`）时取到日期，对**写对了的**展示名报 ERROR。
+            # 这是误报，比漏报更伤信任：看到 ERROR 先怀疑检查器，护栏就废了。
+            # 改成两级：先找带 v/V 前缀的（语义上就是版本），找不到才退回裸数字串（保持旧行为）。
+            # 不新增分支——纯日期 `2026.11.01` 仍走裸匹配、仍按三段比对，行为与 v1.15.5 一致。
+            _d = re.search(r"[vV]\s*(\d+(?:\.\d+)+)", _dn)
+            if not _d:
+                _d = re.search(r"(\d+(?:\.\d+)+)", _dn)     # 真没写任何版本号才跳过
             if _d:
                 _parts = _d.group(1).split(".")
                 if len(_parts) == 3:
@@ -396,7 +404,7 @@ _PITFALLS = """\
 """
 
 
-def _sandbox_files(dirty, broken_meta=False, odd_display=False):
+def _sandbox_files(dirty, broken_meta=False, odd_display=False, date_first=False):
     """迷你技能树。dirty=True 时注入多类缺陷, 每类对应一个可被断言的关键词。
 
     **沙盒必须与真实技能结构双向同步**（1.13.28 立，两轮各踩一次才抽象出来）：
@@ -448,10 +456,17 @@ def _sandbox_files(dirty, broken_meta=False, odd_display=False):
         #     旧正则 `\d+\.\d+\.\d+` 匹配不上 → 当成"无版本号"跳过 → 全绿。
         #     与 broken_meta 同族：**不是数据错，是检查器以为自己做完了判断**。
         #     来源：引擎侧 v1.15.4 回执 §五 第 6 条。
+        #   date_first —— 合法 JSON、版本号**写对了**，只是日期排在版本前面
+        #     （v1.15.6 补的反例）。这一组断言方向与前三组**相反**：
+        #     前三组验"该报有没有报"(漏报)，这组验"不该报有没有报"(误报)。
+        #     旧实现 `v?(\d+...)` 里 `v?` 前缀可选 ⇒ 等价于"版本号 = 第一个数字串"，
+        #     于是 `2026.11.01 v1.0.0` 取到日期，对着正确的展示名报 ERROR。
+        #     来源：引擎侧 v1.15.5 回执 §四（他构造的样本，我方 v1.15.3/1.15.4/1.15.5 均复现）。
         "_meta.json": (
             '{"version": "1.0.0", "display_name": "书源工坊 v1.0.0",' if broken_meta else
             ('{"version": "1.0.0", "display_name": "书源工坊 v1.0"}' if odd_display else
-             ('{"version": "9.9.9"}' if dirty else '{"version": "1.0.0"}'))),
+             ('{"version": "1.0.0", "display_name": "书源工坊 2026.11.01 v1.0.0"}' if date_first else
+              ('{"version": "9.9.9"}' if dirty else '{"version": "1.0.0"}')))),
     }
 
 
@@ -518,8 +533,8 @@ def self_test(verbose=True):
         os.makedirs(sd, exist_ok=True)
         shutil.copy2(os.path.abspath(__file__), os.path.join(sd, "self_audit.py"))
 
-        def run(dirty, broken_meta=False, odd_display=False):
-            for rel, text in _sandbox_files(dirty, broken_meta, odd_display).items():
+        def run(dirty, broken_meta=False, odd_display=False, date_first=False):
+            for rel, text in _sandbox_files(dirty, broken_meta, odd_display, date_first).items():
                 fp = os.path.join(tmp, rel)
                 os.makedirs(os.path.dirname(fp), exist_ok=True)
                 with open(fp, "w", encoding="utf-8") as f:
@@ -575,6 +590,19 @@ def self_test(verbose=True):
                      % ("OK exit=0 且输出 [NOTE]" if odd_ok
                         else "FAIL(静默跳过)\n%s" % out4[-300:]))
 
+        # 第五组(v1.15.6)：**误报**类。断言方向与前四组相反——
+        #   前四组都是"有缺陷 ⇒ 必须叫"，这组是"没缺陷 ⇒ 必须闭嘴"。
+        #   放进 dirty 会互相抵消（dirty 本就要求 exit!=0），必须独立跑。
+        #   只查 [ERROR] 行里有没有出现「版本漂移」，不看 exit 总数：
+        #   沙盒里若有别的无关报错，不该被这条吞掉也不该被它冒充。
+        rc5, out5 = run(False, date_first=True)
+        err5 = [l for l in out5.splitlines() if l.startswith("[ERROR] ")]
+        date_ok = (rc5 == 0 and not any("版本漂移" in l for l in err5))
+        ok &= date_ok
+        lines.append("  日期在前的正确展示名(须放行, 不得误报): %s"
+                     % ("OK exit=0 且无「版本漂移」" if date_ok
+                        else "FAIL(误报)\n%s" % out5[-300:]))
+
         # 真实基线: 上面两组都是虚拟树, 测不到"本技能此刻到底健康不健康"
         real = _real_baseline()
         real_ok_n = sum(1 for c in real if c[1])
@@ -591,9 +619,10 @@ def self_test(verbose=True):
             for l in lines:
                 print(l)
             print("-" * 62)
-            print("self_audit 自检: 正例 %d/1, 反例 %d/%d, 畸形meta %d/1, 两段式NOTE %d/1, 真实基线 %d/%d → %s"
+            print("self_audit 自检: 正例 %d/1, 反例 %d/%d, 畸形meta %d/1, 两段式NOTE %d/1, 日期在前 %d/1, 真实基线 %d/%d → %s"
                   % (1 if pos_ok else 0, hit, len(_DIRTY_MARKERS), 1 if meta_ok else 0,
-                     1 if odd_ok else 0, real_ok_n, len(real), "通过" if ok else "失败"))
+                     1 if odd_ok else 0, 1 if date_ok else 0, real_ok_n, len(real),
+                     "通过" if ok else "失败"))
         return 0 if ok else 1
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
