@@ -172,7 +172,11 @@ COUNT_RE = re.compile(r"(?<![\w.])(\d{1,3})\s*/\s*(\d{1,3})(?![\w.])")
 ITEM_RE = re.compile(r"(\d{1,3})\s*项(?:回归|用例)")
 
 
-def check_hardcoded(errors):
+def check_hardcoded(errors, notices=None):
+    """notices: 非阻断提示。**不为零不算失败**，但必须打出来——
+    「检查器判不了」和「检查器判过且没问题」在输出上必须能区分，否则又是一次假绿。"""
+    if notices is None:
+        notices = []
     # 3a) 写死的计数: 用例数会随能力增长, 抄进代码必然过期。
     #     只查 .py —— 文档里大量 N/N 是"实测六种形态 6/6 通过"这类历史叙述, 一律报会刷屏;
     #     而真正的写死计数只可能出现在回归脚本的打印/断言里(当初的 bug 就在 run_evals.py 的字符串里)。
@@ -247,12 +251,29 @@ def check_hardcoded(errors):
             with open(meta_p, encoding="utf-8") as _f:
                 _m = _json.load(_f)
             _dn = _m.get("display_name") or ""
-            _d = re.search(r"v?(\d+\.\d+\.\d+)", _dn)     # 展示名里没写版本号就跳过
-            if _d and _d.group(1) != ver:
-                errors.append(
-                    "[版本漂移] _meta.json display_name=%r 内含版本 %s, 与 version=%s 不一致 "
-                    "→ 技能市场展示的版本号会对不上；改 version 时须一并改这里"
-                    % (_dn, _d.group(1), ver))
+            # v1.15.5：正则由「必须三段」放宽到「两段及以上」，把"判不了"和"没写版本"分开。
+            # 旧写法 `v?(\d+\.\d+\.\d+)` 对 `书源工坊 v1.15` 匹配不上 → 落进"无版本号→跳过"→ 全绿。
+            # 但 `v1.15` 既不是"没写版本"，也不是"非标准写法"（大版本对齐很常见），
+            # 它只是**段数不够**。归进"跳过"= 检查器以为自己判过了。
+            # 与本文件近三轮修的是同一族：样本不合预期 → 静默跳过 → 绿。
+            # 来源：引擎侧 v1.15.4 回执 §五 第 6 条（他喂了六种形态，这条是双方都没提的）。
+            _d = re.search(r"v?(\d+(?:\.\d+)+)", _dn)     # 真没写任何版本号才跳过
+            if _d:
+                _parts = _d.group(1).split(".")
+                if len(_parts) == 3:
+                    if _d.group(1) != ver:
+                        errors.append(
+                            "[版本漂移] _meta.json display_name=%r 内含版本 %s, 与 version=%s 不一致 "
+                            "→ 技能市场展示的版本号会对不上；改 version 时须一并改这里"
+                            % (_dn, _d.group(1), ver))
+                else:
+                    # 段数≠3：可能是 `v1.15` 这种对齐写法，也可能带额外后缀。判 ERROR 会变狼来了，
+                    # 静默又会让它跟"没问题"混在一起 —— NOTE 是中间唯一不两头得罪的档位。
+                    # 沿用 v1.14.1 教训「护栏应提示而非命令」。
+                    notices.append(
+                        "[版本漂移] _meta.json display_name=%r 含 %d 段版本 %s，无法与 version=%s "
+                        "直接比对 → 请人工确认展示名是否已更新（非阻断）"
+                        % (_dn, len(_parts), _d.group(1), ver))
         except Exception as _e:
             # 同 3b: 不静默。正常到不了这里(3b 成功解析后本段也会成功)，
             # 保留显式报错是为了不让 `except: pass` 这个模式留在新增代码里。
@@ -375,7 +396,7 @@ _PITFALLS = """\
 """
 
 
-def _sandbox_files(dirty, broken_meta=False):
+def _sandbox_files(dirty, broken_meta=False, odd_display=False):
     """迷你技能树。dirty=True 时注入多类缺陷, 每类对应一个可被断言的关键词。
 
     **沙盒必须与真实技能结构双向同步**（1.13.28 立，两轮各踩一次才抽象出来）：
@@ -418,15 +439,19 @@ def _sandbox_files(dirty, broken_meta=False):
         "skill-dependencies.json": deps_dirty if dirty else deps_clean,
         "scripts/demo.py": demo,
         "references/evidence/real.kt": "// 占位\n",
-        # dirty 时故意与沙盒 SKILL.md 的 1.0.0 不一致：让「版本漂移」走 _meta.json 比对这条
-        # **真实链路**，而不是只靠正文 changelog（真实技能已无正文日志，那是一条假路径）。
-        # broken_meta：文件**在**但内容是非法 JSON —— v1.15.4 补的反例。
-        #   与 dirty 不是一回事：dirty 是"值不一致"(会报错)，broken 是"不可解析"
-        #   (旧实现在此吞异常 → 整段检查消失而末尾照样打印"五项全部通过")。
-        #   来源：引擎侧 v1.15.3 回执 §三 报出的双方共有缺陷，此处固化以防回归。
-        "_meta.json": ('{"version": "1.0.0", "display_name": "书源工坊 v1.0.0",'
-                       if broken_meta else ('{"version": "9.9.9"}' if dirty
-                                            else '{"version": "1.0.0"}')),
+        # 三态互斥, 顺序即优先级:
+        #   broken_meta —— 文件**在**但内容是非法 JSON（v1.15.4 补的反例）
+        #     dirty 是"值不一致"(会报错), broken 是"不可解析"(旧实现在此吞异常 →
+        #     整段检查消失而末尾照样打印"五项全部通过")。来源：引擎侧 v1.15.3 回执 §三。
+        #   odd_display —— 合法 JSON, 但 display_name 只写两段版本 `v1.0`（v1.15.5 补的反例）
+        #     它不是"没写版本"，也不是"坏数据"，是**样本不合旧正则的形状**：
+        #     旧正则 `\d+\.\d+\.\d+` 匹配不上 → 当成"无版本号"跳过 → 全绿。
+        #     与 broken_meta 同族：**不是数据错，是检查器以为自己做完了判断**。
+        #     来源：引擎侧 v1.15.4 回执 §五 第 6 条。
+        "_meta.json": (
+            '{"version": "1.0.0", "display_name": "书源工坊 v1.0.0",' if broken_meta else
+            ('{"version": "1.0.0", "display_name": "书源工坊 v1.0"}' if odd_display else
+             ('{"version": "9.9.9"}' if dirty else '{"version": "1.0.0"}'))),
     }
 
 
@@ -493,8 +518,8 @@ def self_test(verbose=True):
         os.makedirs(sd, exist_ok=True)
         shutil.copy2(os.path.abspath(__file__), os.path.join(sd, "self_audit.py"))
 
-        def run(dirty, broken_meta=False):
-            for rel, text in _sandbox_files(dirty, broken_meta).items():
+        def run(dirty, broken_meta=False, odd_display=False):
+            for rel, text in _sandbox_files(dirty, broken_meta, odd_display).items():
                 fp = os.path.join(tmp, rel)
                 os.makedirs(os.path.dirname(fp), exist_ok=True)
                 with open(fp, "w", encoding="utf-8") as f:
@@ -539,6 +564,17 @@ def self_test(verbose=True):
                      % ("OK exit!=0 且点到「无法解析」" if meta_ok
                         else "FAIL\n%s" % out3[-300:]))
 
+        # 第四组(v1.15.5)：样本**形状**不合预期 → 静默跳过。与第三组同族但触发条件不同：
+        #   第三组是"数据坏了"，这组是"数据好的，只是写法旧正则认不出"。
+        #   断言不盯 exit code(它本就该是 0)，只盯有没有 [NOTE] 把"判不了"说出来。
+        rc4, out4 = run(False, odd_display=True)
+        note4 = [l for l in out4.splitlines() if l.startswith("[NOTE] ")]
+        odd_ok = (rc4 == 0 and any("无法与 version" in l or "无法直接比对" in l for l in note4))
+        ok &= odd_ok
+        lines.append("  两段式 display_name(须报 NOTE 而非静默): %s"
+                     % ("OK exit=0 且输出 [NOTE]" if odd_ok
+                        else "FAIL(静默跳过)\n%s" % out4[-300:]))
+
         # 真实基线: 上面两组都是虚拟树, 测不到"本技能此刻到底健康不健康"
         real = _real_baseline()
         real_ok_n = sum(1 for c in real if c[1])
@@ -555,9 +591,9 @@ def self_test(verbose=True):
             for l in lines:
                 print(l)
             print("-" * 62)
-            print("self_audit 自检: 正例 %d/1, 反例 %d/%d, 畸形meta %d/1, 真实基线 %d/%d → %s"
+            print("self_audit 自检: 正例 %d/1, 反例 %d/%d, 畸形meta %d/1, 两段式NOTE %d/1, 真实基线 %d/%d → %s"
                   % (1 if pos_ok else 0, hit, len(_DIRTY_MARKERS), 1 if meta_ok else 0,
-                     real_ok_n, len(real), "通过" if ok else "失败"))
+                     1 if odd_ok else 0, real_ok_n, len(real), "通过" if ok else "失败"))
         return 0 if ok else 1
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
@@ -571,14 +607,17 @@ def main():
         return self_test()
     verbose = "--verbose" in sys.argv
     errors = []
+    notices = []          # 非阻断提示：判不了就说判不了，不混进 [OK]
     check_dangling_refs(errors, verbose)
     check_cli_args(errors)
-    check_hardcoded(errors)
+    check_hardcoded(errors, notices)
     check_evidence_files(errors)
     check_dependency_schema(errors)
     print("=" * 62)
     print("技能自身一致性自检 (悬空引用 / CLI 参数 / 写死计数·版本 / 证据文件随包 / schema 登记)")
     print("=" * 62)
+    for n in notices:
+        print("[NOTE] %s" % n)
     if not errors:
         print("[OK] 五项检查全部通过")
         return 0
