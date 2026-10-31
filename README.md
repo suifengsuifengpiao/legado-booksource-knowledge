@@ -39,6 +39,7 @@
 - **技能升级 v1.15.0**：`@html` 语义纠偏 —— 3.25 的 `AnalyzeByJSoup.getResultLast` 会先 `select("script").remove()` + `select("style").remove()` 再取 `outerHtml()`，**与 innerHTML 不同**；正文藏在 `<script>document.writeln(...)</script>` 的站点用 `@html` 会把正文删干净。新增 `all` 指示符（直接 `outerHtml()`，不删 script）。工具链三处同步（`JsoupRuleEval.java` / `test_parse.py` / evals golden），**铁律 27** 入库。全套回归 59/59 + equiv 19/19。
 - **引擎侧独立复核（2026-10-31）**：对 `legado_app_3.25.apk` 定向反编译 `io.legado.app.model.analyzeRule.AnalyzeByJSoup`，确认上述 `html`/`all` 分支原文；并用构造的「正文在 script 里」页面本地实测 —— `#txt@html` 输出 97 字符（script 全删）、`#txt@all` 输出 273 字符（2 个 script 保留）。**本条不是转述，是原文 + 实测双证**。
 - **新增 3 站档案**：百草露（正文脚本 Base64 + 章节分页跨章陷阱）、手机小说（搜索字节闸 + 限频 cookie）、八叉书库（接口型正文 + Rhino 跨语言两坑）。
+- **3 站真机验证状态（2026-10-31 收口）**：百草露、手机小说、八叉书库三份书源**均已真机验证通过、可用**（用户确认）。百草露原「未跑真机 e2e」标注已撤销，其档案第五节改为「真机通过后仍存的未知项」（拼页逐章取证、超 8 页截断、多页目录、搜索 POST 抓法四项，均为可用性之外的细节边界）。
 - **坑点补遗 N10–N13**：`@html` 删 script / 分页变量跨章 / 搜索字节闸 / `Packages.java` 污染。
 
 ## 2026-10-26 更新
