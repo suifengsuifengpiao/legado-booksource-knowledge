@@ -268,10 +268,20 @@ def check_hardcoded(errors, notices=None):
                 _d = re.search(r"(\d+(?:\.\d+)+)", _dn)     # 真没写任何版本号才跳过
             if _d:
                 _parts = _d.group(1).split(".")
-                if len(_parts) == 3:
+                # v1.15.9：点分数字串若是「纯日期」（首段 4 位年份且 1900~2100），说明展示名只写了
+                # 日期、没写版本号，属于「判不了」而非「不一致」→ NOTE，而不是把它们当版本号比对报错。
+                # 旧实现会对 `2026.11.01` 报 ERROR(与 version 不一致)，属误报。
+                # 边界：首段须恰好 4 位且落年份区间，避免误伤 `v1.15.8`(首段"1")、`11.01.2026`(首段"11")。
+                if len(_parts) == 3 and len(_parts[0]) == 4 and _parts[0].isdigit() \
+                   and 1900 <= int(_parts[0]) <= 2100:
+                    notices.append(
+                        "[版本漂移] _meta.json display_name=%r 只含日期 %s、未写版本号，"
+                        "无法与 SKILL.md version=%s 比对 → 请人工确认是否需要补版本号（非阻断）"
+                        % (_dn, _d.group(1), ver))
+                elif len(_parts) == 3:
                     if _d.group(1) != ver:
                         errors.append(
-                            "[版本漂移] _meta.json display_name=%r 内含版本 %s, 与 version=%s 不一致 "
+                            "[版本漂移] _meta.json display_name=%r 内含版本 %s, 与 SKILL.md version=%s 不一致 "
                             "→ 技能市场展示的版本号会对不上；改 version 时须一并改这里"
                             % (_dn, _d.group(1), ver))
                 else:
@@ -282,6 +292,16 @@ def check_hardcoded(errors, notices=None):
                         "[版本漂移] _meta.json display_name=%r 含 %d 段版本 %s，无法与 version=%s "
                         "直接比对 → 请人工确认展示名是否已更新（非阻断）"
                         % (_dn, len(_parts), _d.group(1), ver))
+            else:
+                # v1.15.9：主匹配落空(没有点分数字串)，但展示名含「疑似日期」(YYYY-MM-DD / YYYY/MM/DD)。
+                # 这是「写了日期但分隔符不是点」的情况，旧正则只认点分 → 整段静默跳过(漏网)。
+                # 引擎侧 v1.15.8 回执 §二 实测：`2026-11-01` / `2026/11/01` 一声不吭地绿。
+                # 判不了就说判不了 → NOTE 而非静默。
+                if re.search(r"\d{4}[-/]\d{1,2}[-/]\d{1,2}", _dn):
+                    notices.append(
+                        "[版本漂移] _meta.json display_name=%r 含疑似日期但分隔符非点分，"
+                        "无法提取版本号与 version=%s 比对 → 请人工确认（非阻断）"
+                        % (_dn, ver))
         except Exception as _e:
             # 同 3b: 不静默。正常到不了这里(3b 成功解析后本段也会成功)，
             # 保留显式报错是为了不让 `except: pass` 这个模式留在新增代码里。
@@ -404,7 +424,7 @@ _PITFALLS = """\
 """
 
 
-def _sandbox_files(dirty, broken_meta=False, odd_display=False, date_first=False):
+def _sandbox_files(dirty, broken_meta=False, odd_display=False, date_first=False, date_sep=False):
     """迷你技能树。dirty=True 时注入多类缺陷, 每类对应一个可被断言的关键词。
 
     **沙盒必须与真实技能结构双向同步**（1.13.28 立，两轮各踩一次才抽象出来）：
@@ -462,11 +482,16 @@ def _sandbox_files(dirty, broken_meta=False, odd_display=False, date_first=False
         #     旧实现 `v?(\d+...)` 里 `v?` 前缀可选 ⇒ 等价于"版本号 = 第一个数字串"，
         #     于是 `2026.11.01 v1.0.0` 取到日期，对着正确的展示名报 ERROR。
         #     来源：引擎侧 v1.15.5 回执 §四（他构造的样本，我方 v1.15.3/1.15.4/1.15.5 均复现）。
+        #   date_sep —— 合法 JSON、版本号没写、只写了**横线/斜线**分隔的纯日期
+        #     （v1.15.9 补的反例）。旧实现裸正则 `(\d+(?:\.\d+)+)` 只认点分，
+        #     `2026-11-01`/`2026/11/01` 一个 `.` 都没有 → 主匹配落空 → 掉进"真没写版本号→跳过"
+        #     → **静默通过**，与"真没写版本号"输出一模一样。来源：引擎侧 v1.15.8 回执 §二 实测。
         "_meta.json": (
             '{"version": "1.0.0", "display_name": "书源工坊 v1.0.0",' if broken_meta else
             ('{"version": "1.0.0", "display_name": "书源工坊 v1.0"}' if odd_display else
              ('{"version": "1.0.0", "display_name": "书源工坊 2026.11.01 v1.0.0"}' if date_first else
-              ('{"version": "9.9.9"}' if dirty else '{"version": "1.0.0"}')))),
+              ('{"version": "1.0.0", "display_name": "书源工坊 2026-11-01"}' if date_sep else
+               ('{"version": "9.9.9"}' if dirty else '{"version": "1.0.0"}'))))),
     }
 
 
@@ -533,8 +558,8 @@ def self_test(verbose=True):
         os.makedirs(sd, exist_ok=True)
         shutil.copy2(os.path.abspath(__file__), os.path.join(sd, "self_audit.py"))
 
-        def run(dirty, broken_meta=False, odd_display=False, date_first=False):
-            for rel, text in _sandbox_files(dirty, broken_meta, odd_display, date_first).items():
+        def run(dirty, broken_meta=False, odd_display=False, date_first=False, date_sep=False):
+            for rel, text in _sandbox_files(dirty, broken_meta, odd_display, date_first, date_sep).items():
                 fp = os.path.join(tmp, rel)
                 os.makedirs(os.path.dirname(fp), exist_ok=True)
                 with open(fp, "w", encoding="utf-8") as f:
@@ -603,6 +628,19 @@ def self_test(verbose=True):
                      % ("OK exit=0 且无「版本漂移」" if date_ok
                         else "FAIL(误报)\n%s" % out5[-300:]))
 
+        # 第七组(v1.15.9)：日期格式漏网。横/斜线分隔的纯日期(无版本号)旧实现静默跳过，
+        #   与"没写版本号"的输出一模一样，无法区分。引擎侧 v1.15.8 回执 §二 实测：
+        #   `2026-11-01`/`2026/11/01` 一声不吭地绿。修复后必须落 NOTE 而非静默。
+        #   断言方向同第四组(该认怂/NOTE)，但缺陷不同(第四组是两段版本号形状，这一组是
+        #   日期分隔符非点分)，故独立成组；与第四组合并会让单组无法区分哪条在起作用。
+        rc7, out7 = run(False, date_sep=True)
+        note7 = [l for l in out7.splitlines() if l.startswith("[NOTE] ")]
+        date_sep_ok = (rc7 == 0 and any("日期" in l for l in note7))
+        ok &= date_sep_ok
+        lines.append("  日期格式漏网(横线日期须报 NOTE 而非静默): %s"
+                     % ("OK exit=0 且输出 [NOTE]" if date_sep_ok
+                        else "FAIL(静默跳过)\n%s" % out7[-300:]))
+
         # 真实基线: 上面两组都是虚拟树, 测不到"本技能此刻到底健康不健康"
         real = _real_baseline()
         real_ok_n = sum(1 for c in real if c[1])
@@ -619,10 +657,10 @@ def self_test(verbose=True):
             for l in lines:
                 print(l)
             print("-" * 62)
-            print("self_audit 自检: 正例 %d/1, 反例 %d/%d, 畸形meta %d/1, 两段式NOTE %d/1, 日期在前 %d/1, 真实基线 %d/%d → %s"
+            print("self_audit 自检: 正例 %d/1, 反例 %d/%d, 畸形meta %d/1, 两段式NOTE %d/1, 日期在前 %d/1, 日期漏网 %d/1, 真实基线 %d/%d → %s"
                   % (1 if pos_ok else 0, hit, len(_DIRTY_MARKERS), 1 if meta_ok else 0,
-                     1 if odd_ok else 0, 1 if date_ok else 0, real_ok_n, len(real),
-                     "通过" if ok else "失败"))
+                     1 if odd_ok else 0, 1 if date_ok else 0, 1 if date_sep_ok else 0,
+                     real_ok_n, len(real), "通过" if ok else "失败"))
         return 0 if ok else 1
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
