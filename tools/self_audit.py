@@ -424,7 +424,7 @@ _PITFALLS = """\
 """
 
 
-def _sandbox_files(dirty, broken_meta=False, odd_display=False, date_first=False, date_sep=False):
+def _sandbox_files(dirty, broken_meta=False, odd_display=False, date_first=False, date_sep=False, date_dot=False):
     """迷你技能树。dirty=True 时注入多类缺陷, 每类对应一个可被断言的关键词。
 
     **沙盒必须与真实技能结构双向同步**（1.13.28 立，两轮各踩一次才抽象出来）：
@@ -491,7 +491,8 @@ def _sandbox_files(dirty, broken_meta=False, odd_display=False, date_first=False
             ('{"version": "1.0.0", "display_name": "书源工坊 v1.0"}' if odd_display else
              ('{"version": "1.0.0", "display_name": "书源工坊 2026.11.01 v1.0.0"}' if date_first else
               ('{"version": "1.0.0", "display_name": "书源工坊 2026-11-01"}' if date_sep else
-               ('{"version": "9.9.9"}' if dirty else '{"version": "1.0.0"}'))))),
+               ('{"version": "1.0.0", "display_name": "书源工坊 2026.11.01"}' if date_dot else
+                ('{"version": "9.9.9"}' if dirty else '{"version": "1.0.0"}')))))),
     }
 
 
@@ -558,8 +559,8 @@ def self_test(verbose=True):
         os.makedirs(sd, exist_ok=True)
         shutil.copy2(os.path.abspath(__file__), os.path.join(sd, "self_audit.py"))
 
-        def run(dirty, broken_meta=False, odd_display=False, date_first=False, date_sep=False):
-            for rel, text in _sandbox_files(dirty, broken_meta, odd_display, date_first, date_sep).items():
+        def run(dirty, broken_meta=False, odd_display=False, date_first=False, date_sep=False, date_dot=False):
+            for rel, text in _sandbox_files(dirty, broken_meta, odd_display, date_first, date_sep, date_dot).items():
                 fp = os.path.join(tmp, rel)
                 os.makedirs(os.path.dirname(fp), exist_ok=True)
                 with open(fp, "w", encoding="utf-8") as f:
@@ -628,18 +629,23 @@ def self_test(verbose=True):
                      % ("OK exit=0 且无「版本漂移」" if date_ok
                         else "FAIL(误报)\n%s" % out5[-300:]))
 
-        # 第七组(v1.15.9)：日期格式漏网。横/斜线分隔的纯日期(无版本号)旧实现静默跳过，
-        #   与"没写版本号"的输出一模一样，无法区分。引擎侧 v1.15.8 回执 §二 实测：
-        #   `2026-11-01`/`2026/11/01` 一声不吭地绿。修复后必须落 NOTE 而非静默。
-        #   断言方向同第四组(该认怂/NOTE)，但缺陷不同(第四组是两段版本号形状，这一组是
-        #   日期分隔符非点分)，故独立成组；与第四组合并会让单组无法区分哪条在起作用。
+        # 第七组(v1.15.9→1.15.10)：日期格式漏网。两类纯日期(无版本号)旧实现静默跳过：
+        #   A) 横/斜线分隔 `2026-11-01`/`2026/11/01`（v1.15.9 修的兜底那半）
+        #   B) 点分纯日期 `2026.11.01`（v1.15.9 修的点分那半，但当时只加了 A 的断言——
+        #      回退点分那半后第七组仍全绿、自检一声不吭；引擎侧 v1.15.9 回执 §二 指出）。
+        #   两标本同属 C 类(该认怂/NOTE)、断言方向一致，放同一组不互相抵消；
+        #   与第四组(两段版本号形状)缺陷不同，故独立成组。
         rc7, out7 = run(False, date_sep=True)
         note7 = [l for l in out7.splitlines() if l.startswith("[NOTE] ")]
         date_sep_ok = (rc7 == 0 and any("日期" in l for l in note7))
         ok &= date_sep_ok
-        lines.append("  日期格式漏网(横线日期须报 NOTE 而非静默): %s"
-                     % ("OK exit=0 且输出 [NOTE]" if date_sep_ok
-                        else "FAIL(静默跳过)\n%s" % out7[-300:]))
+        rc7b, out7b = run(False, date_dot=True)
+        note7b = [l for l in out7b.splitlines() if l.startswith("[NOTE] ")]
+        date_dot_ok = (rc7b == 0 and any("日期" in l for l in note7b))
+        ok &= date_dot_ok
+        lines.append("  日期格式漏网(横/点分纯日期须报 NOTE 而非静默): %s"
+                     % ("OK 2/2" if (date_sep_ok and date_dot_ok)
+                        else "FAIL(静默跳过)\n%s\n%s" % (out7[-300:], out7b[-300:])))
 
         # 真实基线: 上面两组都是虚拟树, 测不到"本技能此刻到底健康不健康"
         real = _real_baseline()
@@ -657,9 +663,10 @@ def self_test(verbose=True):
             for l in lines:
                 print(l)
             print("-" * 62)
-            print("self_audit 自检: 正例 %d/1, 反例 %d/%d, 畸形meta %d/1, 两段式NOTE %d/1, 日期在前 %d/1, 日期漏网 %d/1, 真实基线 %d/%d → %s"
+            print("self_audit 自检: 正例 %d/1, 反例 %d/%d, 畸形meta %d/1, 两段式NOTE %d/1, 日期在前 %d/1, 日期漏网 %d/2, 真实基线 %d/%d → %s"
                   % (1 if pos_ok else 0, hit, len(_DIRTY_MARKERS), 1 if meta_ok else 0,
-                     1 if odd_ok else 0, 1 if date_ok else 0, 1 if date_sep_ok else 0,
+                     1 if odd_ok else 0, 1 if date_ok else 0,
+                     (1 if date_sep_ok else 0) + (1 if date_dot_ok else 0),
                      real_ok_n, len(real), "通过" if ok else "失败"))
         return 0 if ok else 1
     finally:
