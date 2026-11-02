@@ -15,11 +15,14 @@
     → 真机日志「获取书籍列表 → 列表为空，按详情页解析」→ 0 本
 
 检查项：
-  R1 exploreUrl 语法：以 [ 开头必须为合法 JSON（逐项 title/url）
+  R1 exploreUrl 语法：以 [ 开头必须为合法 JSON（逐项 title/url）。
+     v1.15.15：直接解析失败时按**宿主 gson 宽容度**再解一次（{{...}} 占位 + 字符串内
+     \\n/\\r/\\t 转义）——复解通过 = 只是 Python 比 gson 严 → NOTE；仍失败 = 结构真错 → ERROR
   R2 exploreUrl 文本行格式：每行 标题::URL（以 @js: / <js> 开头时为 JS 动态发现，
      本闸不解析 JS，转 NOTE 提示另验——手机小说真机已验证 @js: 形态合法）
   R3 exploreUrl 各项 URL：内嵌选项 ,{...} 二次解析；相对路径在 bookSourceUrl
-     非空时由宿主拼接（合法），bookSourceUrl 为空才报 ERROR
+     非空时由宿主拼接（合法），bookSourceUrl 为空才报 ERROR。
+     不含 {{page}} 是**提示级**（分页机会提示，榜单/分类首页本来只有一页），不阻断 --strict
   R4 searchUrl 结构 + method 与 webView 互斥（相对路径同 R3 口径）
   R5 易失地址启发式（路径含 4+ 位数字，需多会话复验）
   R6 GET searchUrl 里的 {{key}} 中文编码提示：GET 的查询串由宿主 AnalyzeUrl
@@ -37,7 +40,7 @@
   旧版用 rfind(",{") + json.loads(整段后缀)，两头都比宿主严：既误杀 @js:/<js> 尾部 JS，
   也误判数组内 "url" 值里的 \\",{...}\\"（实测：12 本已交付书源里 3 本被误判 ERROR）。
 
-退出码：0 = 无 ERROR（默认口径，WARN 不阻断）；1 = 有 ERROR，或 --strict 下有 WARN
+退出码：0 = 无 ERROR（默认口径，WARN 不阻断）；1 = 有 ERROR，或 --strict 下有阻断级 WARN
 用法：python3 check_request_layer.py <书源.json> [--strict]
       --strict：WARN 亦视为失败（R6 这类「编码可能有问题」在严格模式下应阻断交付）
       v1.15.13 前 --strict 只写在用法里、无实现分支，传了等于没传
@@ -116,6 +119,181 @@ def split_options(raw, host="?"):
         return url_part, None, f"选项 JSON 非法（{e}）：{opt_part[:120]}"
 
 
+def _escape_ctrl_in_strings(s):
+    r"""把 JSON **字符串内部**的裸控制字符转成转义序列（\n \r \t）。
+
+    只处理引号内的字符：结构层的换行/缩进是合法 JSON 空白，一起转义反而会把整串弄坏。
+    反斜杠状态要跟着走——`"a\\"` 里第二个引号是字符串结尾，`"a\"b"` 里的引号不是。
+    v1.15.15 两步走的第 ② 步：建模宿主 gson 对控制字符的宽容度，而不是笼统放过。
+    """
+    out = []
+    in_str = False
+    esc = False
+    mapping = {"\n": r"\n", "\r": r"\r", "\t": r"\t"}
+    for ch in s:
+        if in_str:
+            if esc:
+                out.append(ch)
+                esc = False
+                continue
+            if ch == "\\":
+                out.append(ch)
+                esc = True
+                continue
+            if ch == '"':
+                out.append(ch)
+                in_str = False
+                continue
+            out.append(mapping.get(ch, ch))
+            continue
+        if ch == '"':
+            in_str = True
+        out.append(ch)
+    return "".join(out)
+
+
+def _gson_lenient(s):
+    r"""把 **宿主 gson 默认 lenient 能吃、Python json 吃不下** 的三类形态转成严格 JSON。
+
+    v1.15.17（P1-1 选 (a)）。由来：本闸用 Python `json` / `raw_decode` 解析，
+    宿主用 gson；两套严格度不同 → 同一份书源在两处结论相反。gson-2.13.2 实测（/tmp/p11/P.java）：
+
+      | 形态                     | gson | Python json | 本函数 |
+      |--------------------------|------|-------------|--------|
+      | `{'k':'v'}`   单引号键/值 | OK   | FAIL        | 转双引号 |
+      | `{k:"v"}`     无引号键     | OK   | FAIL        | 补双引号 |
+      | `[{...},]`    数组尾逗号   | OK（多出一个 **null 元素**） | FAIL | 删逗号，**补一个 null 项** |
+      | `{k:v}`       无引号值     | FAIL | FAIL        | 不处理，仍判 ERROR |
+
+    尾逗号那一行必须补 null：gson 把 `[obj,]` 读成 `[obj, null]`（同一探针两处打印均为
+    `[{...},null]`）。不补就是「条目数少一个」——元素级规则按 i 归属，少一项会让后面所有
+    `[JSON[i]]` 整体前移一格，比不解析更坏。这是本函数唯一一处**故意不守恒长度**的地方。
+
+    未覆盖（照旧 ERROR，不假装能吃）：
+      · 无引号**值**（`{url:https://…}`）——gson 也不吃，两边一致（E2b2 探针 FAIL）
+      · 注释（`//`、`/* */`）——未进 E2 样本，按「未建模」处理，见 maintenance.md
+
+    只做**单趟**转译，不做反复试探：转完仍解析失败 = 结构真错，交回上层报 ERROR。
+    字符串内（含 `\"` 转义状态）一律不动，避免把 URL 里的单引号/逗号改坏。
+    """
+    out = []
+    n = len(s)
+    i = 0
+    in_str = False
+    q = ""            # 当前字符串的定界符（' 或 "）
+    while i < n:
+        ch = s[i]
+        if in_str:
+            if ch == "\\" and i + 1 < n:
+                out.append(ch)
+                out.append(s[i + 1])
+                i += 2
+                continue
+            if ch == q:
+                out.append('"')     # 单引号字符串 → 双引号
+                in_str = False
+                i += 1
+                continue
+            if ch == '"':
+                out.append('\\"')   # 单引号串内的裸双引号必须转义，否则提前闭合
+                i += 1
+                continue
+            out.append(ch)
+            i += 1
+            continue
+        if ch == "'":
+            out.append('"')
+            in_str = True
+            q = "'"
+            i += 1
+            continue
+        if ch == '"':
+            out.append('"')
+            in_str = True
+            q = '"'
+            i += 1
+            continue
+        if ch.isalpha() or ch == "_":
+            # 裸标识符：后面（跳过空白）跟冒号 → 是键，补引号；否则是值（true/null/裸值），原样。
+            # 键**紧跟**冒号才算（`url:`）——`http:` 这种「值里的词 + 冒号」前面不是 `{` / `,`，
+            # 由 _lenient_candidate 那关挡住（先转译再判定，单趟字符串扫描分不清两者）。
+            j = i
+            while j < n and (s[j].isalnum() or s[j] in "_$"):
+                j += 1
+            word = s[i:j]
+            k = j
+            while k < n and s[k] in " \t\r\n":
+                k += 1
+            if k == j and k < n and s[k] == ":":
+                out.append('"%s"' % word)
+            else:
+                out.append(word)
+            i = j
+            continue
+        out.append(ch)
+        i += 1
+    text = "".join(out)
+
+    # 尾逗号（gson lenient 接受）：对象尾逗号删逗号、数组尾逗号补 null。
+    # 两遍顺序：先对象尾（只动 `}`）再数组尾（只动 `]`），不能把 `,]` 用「删逗号」与「补 null」各做一遍——
+    # 补 null 产生的 `,null]` 会被删逗号那遍的 `,]` 二次匹配破坏（v1.15.17 实测 E2c 仍 ERROR）。
+    text = re.sub(r",(\s*)\}", r"\1}", text)
+    text = re.sub(r",(\s*)\]", r",null\1]", text)
+    return text
+
+
+def _r5_volatile(url):
+    """易失地址启发式：返回**路径**里含 4+ 位连续数字的段。
+
+    v1.15.15 起抽成函数共用：JSON 结构成功路径与「宽容度差异 NOTE」路径调的是**同一套判据**。
+    两处各写一份必然漂移——M2.5 的教训正是「一条本该拦的规则，因为走的是另一条分支就消失」。
+
+    v1.15.14：先把行内选项 ,{...} 从路径里剥掉再判——宿主虽不把它当选项解析（explore 口径），
+    但它显然不是 URL 路径的一段；不剥会让 {"webWait":3000} 里的 3000 被误判成易失长数字段。
+
+    v1.15.16 两处改（P0-2 + P0-1 副作用）：
+      ① **只看 path，不看查询串**。`/search?cid=1234&page={{page}}` 里的 `cid=1234` 是查询参数，
+         不是「按年月日变动的静态化路径」；旧版不切 `?`，把整段当路径，--strict 下
+         把正常带 id 的分类页判成阻断级（挡合格书源）。查询串长数字**不报**——
+         若将来发现确有人把易失内容放查询串，再按任务书给的余地降为提示级，不在这里自己扩。
+      ② `{{page}}` 与 NOTE 路径的替代占位 `__JS__` 一并剔除。NOTE 路径判 R5 前 `{{...}}`
+         已被占位成 `__JS__`，只 replace("{{page}}", "") 会失效——本闸不建模「占位符展开后
+         会不会引入 4+ 位数字」，因为那取决于宿主运行时，静态判不了；照实剔除。
+    """
+    u = re.sub(r"\s*,\s*\{.*$", "", url, flags=re.S)
+    path = u.split("?", 1)[0]
+    path = path.replace("{{page}}", "").replace("__JS__", "")
+    return [seg for seg in re.findall(r"[^/]*\d{4,}[^/]*", path) if re.search(r"\d{4,}", seg)]
+
+
+def _try_load(text):
+    """(值, None) 或 (None, 异常)。代替 try/except 包在分支里——
+    v1.15.17 踩过：三层嵌套 try 里那句 `arr = json.loads(probe)` 实际上从未执行，
+    而外层 except 照样产出 ERROR 文案，整条 NOTE 路径静默失效（6 轮对照才发现）。
+    收成函数后，「解成功了没有」只看返回值，不再靠缩进猜。"""
+    try:
+        return json.loads(text), None
+    except Exception as exc:      # noqa: BLE001 —— 任何解析失败都要能落到 ERROR 分支
+        return None, exc
+
+
+def _r5_collect(arr):
+    """[(i, title, seg)]：元素级 R5 的唯一实现。
+
+    结构成功路径、NOTE 路径、ERROR 路径三处都调它 —— v1.15.16 的教训是「同一判据写三份必然漂移」，
+    一份漏了就出现「有控制字符错 + 有易失数字段 → 两个都不报」（X5）。
+    非 dict 元素（含尾逗号补出的 None）跳过：它们没有 url 可判。
+    """
+    hits = []
+    for i, it in enumerate(arr if isinstance(arr, list) else []):
+        if not isinstance(it, dict):
+            continue
+        title = str(it.get("title", ""))
+        for seg in _r5_volatile(str(it.get("url", ""))):
+            hits.append((i, title, seg))
+    return hits
+
+
 def check_explore(explore, res, base=""):
     if not explore:
         res.note("R1", "exploreUrl 为空，跳过发现页检查")
@@ -133,6 +311,15 @@ def check_explore(explore, res, base=""):
     items = []
 
     if is_json:
+        # 本闸用 Python json，宿主用 gson，两套严格度不同。v1.15.17（P1-1）把「差在哪、谁让谁」
+        # 收成一条链，三档逐档严格，**每档吃下的形态都明确登记**（详见 _gson_lenient 与 main 的 NOTE）：
+        #   ① 严格 json.loads
+        #   ② probe：{{...}} 占位 + 字符串内控制字符转义（v1.15.15 起，建模 gson 对控制字符的宽容）
+        #   ③ _gson_lenient：单引号键/值、无引号键、尾逗号（v1.15.17 起，建模 gson lenient）
+        # 三档全失败才判 ERROR。为什么不再「一律严格」：E2a/E2b 是 gson 真能吃下的合格写法，
+        # 判 ERROR 就是挡合格书源（与 P0-2 同族）。为什么不能只降 NOTE 不取 arr：R5 要按条目归属，
+        # 没有结构就没有 `[JSON[i]]「title」`，只能退回「原文抽取」猜——那条路已因 B8b/D3b 删掉。
+        lenient = None
         try:
             arr = json.loads(explore)
         except Exception as e:
@@ -141,26 +328,94 @@ def check_explore(explore, res, base=""):
             pos = f"，约第 {col} 列" if col else ""
             # {{ }} 内嵌多行 JS 时 Python 的 json 会因裸回车报错，而宿主 gson **能过**
             # （八叉书库实证：java_probe/Probe.java → gson [OK] 元素数=15，格 2 实测）。
-            # 这是本闸的模型局限，不是书源错 → NOTE，交 js_layer_check / 真机，不判 ERROR
-            # 判据收紧（v1.15.13 第二版，两步都实测过）：
-            #   ① 必须有 `{{` 与 `}}` —— 事故版 v4 那种真未转义的 ,{"webView" 不含 {{ }}，必须继续报 ERROR；
-            #   ② 不能再要求"没有 ,{" —— 八叉书库正是 `,{` 同一子串两边都在（{{ 在前、,{ 是 JSON 元素分隔），
-            #      而 v4 的 `,{` 落在**引号内**。真正的分界是引号：v4 的双引号在 ,{ 前提前闭合，
-            #      整串无法被 json 解析；八叉书库虽也无法被 Python json 解析(裸回车)但 gson 能过。
-            # 结论：两种都不能靠结构判，只能靠「宿主实测能过」→ 本闸不判，转 NOTE 交 js_layer_check / 真机。
-            # 为不放过真错，这里额外要求解析器报的是**控制字符**类错误（gson 宽容接受），
-            # 引号提前闭合（Expecting ',' delimiter / Invalid control 之外的语法错）仍按 ERROR 报。
-            if ("{{" in explore and "}}" in explore) and "Invalid control character" in str(e):
-                res.note("R1", f"exploreUrl 为 JSON 数组且内嵌 {{{{ }}}} 动态片段（宿主先算 JS 再解析，"
-                               f"gson 实测可过；Python json 因裸回车报错），本闸跳结构校验；"
-                               f"JS 语法另用 js_layer_check.py / 真机验证")
+            # v1.15.14 的处理是「见 Invalid control character 且含 {{ }} → 整段 NOTE 后 return」，
+            # 那是一条**顺序敏感短路**：json.loads 停在第一个错误处，裸换行在前时先报控制字符
+            # → 直接 return，后面的未转义选项**永远不会被看见**（g10b 实证 ERROR=0 放过）。
+            # v1.15.15 改两步走，把「宽容度差异」与「结构真错」分开：
+            #   ① {{...}} 占位成 __JS__（宿主先算 JS 再解析，JS 正文不参与 JSON 结构）
+            #   ② 字符串内 \n \r \t 转成字面两字符（gson 宽容接受，本闸建模它的宽容度）
+            #   ③ 再 json.loads：成功 = 差异只在宽容度 → NOTE；失败 = 结构本身有问题 → ERROR
+            # 不按「有没有 {{ }}」分流：{{ }} 只是常见伴随特征，不是判据。
+            probe = _escape_ctrl_in_strings(re.sub(r"\{\{.*?\}\}", "__JS__", explore, flags=re.S))
+            # ---- 第 ② 档：probe（控制字符建模）----
+            arr, e2 = _try_load(probe)
+            lenient = None
+            if e2 is not None:
+                # ---- 第 ③ 档：gson lenient（单引号/无引号键/尾逗号）----
+                # 必须先确认转译真的改动了原文：没改动的形态本闸不建模，不能拿 ② 档的错冒充 ③ 档的错
+                # （E24 同族：报文写「含 gson lenient 复解」而实际没跑过 = 把没建模说成建模过）。
+                cand = _gson_lenient(probe)
+                if cand != probe:
+                    arr3, e3 = _try_load(cand)
+                    if e3 is None:
+                        arr, e2, lenient = arr3, None, "gson lenient（单引号/无引号键/尾逗号）"
+                        stage = ""
+                    else:
+                        e2 = e3
+                        stage = "按宿主宽容度复解（含 gson lenient）后仍失败"
+                else:
+                    stage = ("按宿主宽容度复解后仍失败；gson lenient 档未适用"
+                             "（无可代换形态）→ 本闸不建模该形态，判 ERROR")
+            if e2 is not None:
+                # ---- 第 ③ 档：gson lenient（单引号/无引号键/尾逗号）----
+                # 先确认转译真的改动了原文：没改动的形态本闸不建模，不能拿 ② 档的错冒充 ③ 档的错
+                # （E24 同族：报文里写「含 gson lenient 复解」而实际没跑过 = 把没建模说成建模过）。
+                cand = _gson_lenient(probe)
+                if cand != probe:
+                    arr, e3 = _try_load(cand)
+                    if e3 is not None:
+                        e2 = e3
+                        stage = "按宿主宽容度复解（含 gson lenient）后仍失败"
+                    else:
+                        lenient = "gson lenient（单引号/无引号键/尾逗号）"
+                        stage = ""
+                else:
+                    stage = ("按宿主宽容度复解后仍失败；gson lenient 档未适用"
+                             "（无可代换形态）→ 本闸不建模该形态，判 ERROR")
+            if e2 is not None:
+                col2 = getattr(e2, "colno", None)
+                pos2 = f"，约第 {col2} 列" if col2 else ""
+                res.err("R1", f"exploreUrl 声明为 JSON 数组但解析失败{pos2}：{e2}"
+                               f"（{stage}；直接解析报：{e}）")
+                # 直接解析报的是控制字符错时，它不是缺陷本身（gson 宽容接受），复解后的结构错才是真错；
+                # 此时不再复述「双引号提前闭合」定位——同一处缺陷会被报成三条（g10b 实证）。
+                # 直接解析已是结构错（如 duomle v4 的 Expecting ',' delimiter）时保留定位与两条修法。
+                if "Invalid control character" not in str(e):
+                    m = re.search(r'"[^"]*?,\{"', explore)
+                    if m:
+                        res.err("R1", f"疑似未转义的内嵌选项（此处双引号提前闭合字符串）：…{explore[max(0,m.start()-40):m.end()+40]}…")
+                        res.err("R1", '修法一：内层引号转义为 \\" ；修法二（更稳）：改用文本行格式 标题::URL,{"webView":true}')
+                # v1.15.15 起：即使判 ERROR，也不能吞掉 R5。判 ERROR 只说明「结构有缺陷」，
+                # 而 R5 判的是 url 路径有没有 4+ 位长数字段——缺陷前提下该报的照样要报，
+                # 否则「有控制字符错 + 有易失数字段」会两个都不报（X5 实证 ERROR=0 WARN=0）。
+                r5_err = _r5_collect(arr)
+                for i, title, seg in r5_err:
+                    res.warn("R5", f"[JSON[{i}]]「{title}」路径含长数字段 '{seg}'，疑似易失地址；须用 3 个独立会话复验是否稳定")
+                res.note("R1", f"R1 判 ERROR，但结构已按 gson 口径复解出，R5 照常按条目判：命中 {len(r5_err)} 段")
                 return
-            res.err("R1", f"exploreUrl 声明为 JSON 数组但解析失败{pos}：{e}")
-            # 错误定位：找出第一个可疑的未转义内嵌选项
-            m = re.search(r'"[^"]*?,\{"', explore)
-            if m:
-                res.err("R1", f"疑似未转义的内嵌选项（此处双引号提前闭合字符串）：…{explore[max(0,m.start()-40):m.end()+40]}…")
-                res.err("R1", '修法一：内层引号转义为 \\" ；修法二（更稳）：改用文本行格式 标题::URL,{"webView":true}')
+            # 以下为「复解成功」：R1 降 NOTE，元素级 R5 与结构成功路径走同一个 _r5_collect，
+            # 输出同一种 `[JSON[i]]「title」` 归属格式（B8b/D3b 的教训：不再从原文猜 URL）。
+            r5_hits = _r5_collect(arr)
+            for i, title, seg in r5_hits:
+                res.warn("R5", f"[JSON[{i}]]「{title}」路径含长数字段 '{seg}'，疑似易失地址；须用 3 个独立会话复验是否稳定")
+            n_items = len(arr) if isinstance(arr, list) else 0
+            r5_txt = (f"R5 已按复解出的 {n_items} 个条目逐条补判：命中 {len(r5_hits)} 段" if r5_hits
+                      else f"R5 已按复解出的 {n_items} 个条目逐条补判：无 4+ 位长数字段")
+            same = "**R3 因 {{...}} 已被占位、分页判据不可靠而跳过**（未检查 ≠ 已通过）；"
+            if lenient:
+                res.note("R1", "exploreUrl 为 JSON 数组：Python json 直接解析失败（"
+                               + str(e) + "），按宿主 gson 宽容度代换后通过（{{...}} 占位 + 字符串内控制字符转义"
+                               " + gson lenient 单引号/无引号键/尾逗号）→ 判为解析器宽容度差异；"
+                               "**该档只建模上述三形态**（gson-2.13.2 探针实测），无引号值等未证形态仍判 ERROR；"
+                               "gson 对数组尾逗号会多读出一个 null 元素，本闸按同口径补齐，"
+                               "否则 [JSON[i]] 归属会整体前移一格；" + same + r5_txt +
+                               "；JS 语法另用 js_layer_check.py / 真机验证")
+            else:
+                res.note("R1", "exploreUrl 为 JSON 数组：Python json 直接解析失败（"
+                               + str(e) + "），但按宿主 gson 宽容度复解通过"
+                               "（{{...}} 占位 + 字符串内控制字符转义）→ 判为解析器宽容度差异；"
+                               + same + r5_txt +
+                               "；JS 语法另用 js_layer_check.py / 真机验证")
             return
         if not isinstance(arr, list) or not arr:
             res.err("R1", "exploreUrl JSON 不是非空数组")
@@ -204,14 +459,15 @@ def check_explore(explore, res, base=""):
             else:
                 res.err("R3", f"[{where}]「{title}」URL 不以 http(s):// 开头且 bookSourceUrl 为空，宿主无处拼接基址：{url[:80]}")
         if "{{page}}" not in url:
-            res.warn("R3", f"[{where}]「{title}」URL 不含 {{{{page}}}}，多条分类可能永远只取第 1 页")
-        # 易失地址启发式
-        # v1.15.14：先把行内选项 ,{...} 从路径里剥掉再判——宿主虽不把它当选项解析（explore 口径），
-        # 但它显然不是 URL 路径的一段；不剥会让 {"webWait":3000} 里的 3000 被误判成易失长数字段。
-        _url_for_r5 = re.sub(r"\s*,\s*\{.*$", "", url, flags=re.S)
-        for seg in re.findall(r"[^/]*\d{4,}[^/]*", _url_for_r5.replace("{{page}}", "")):
-            if re.search(r"\d{4,}", seg):
-                res.warn("R5", f"[{where}]「{title}」路径含长数字段 '{seg}'，疑似易失地址；须用 3 个独立会话复验是否稳定")
+            # v1.15.15：降为提示级。原文是「**可能**永远只取第 1 页」——推测；且实测红的全是
+            # 榜单页 / 分类首页（读书斋 10 条分类首页、百草露 2 条榜、yqkxs 7 条榜），本来只有一页。
+            # 宿主对 exploreUrl 的翻页只认 {{page}} 模板，不含即不翻页——这是**机制事实**；
+            # 但「该分类有没有第二页」静态判不了，按缺陷判会误伤，故只提示、不阻断 --strict。
+            res.warn("R3", f"[{where}]「{title}」URL 不含 {{{{page}}}}：分页机会提示（榜单/分类首页本来只有一页，"
+                           f"是否缺陷取决于该分类有无第二页，静态判断不了）", blocking=False)
+        # 易失地址启发式（判据见 _r5_volatile，与 NOTE 路径共用同一函数，不各写一份）
+        for seg in _r5_volatile(url):
+            res.warn("R5", f"[{where}]「{title}」路径含长数字段 '{seg}'，疑似易失地址；须用 3 个独立会话复验是否稳定")
 
 
 def check_search(search, res, base=""):
@@ -292,7 +548,21 @@ def main():
         print(f"{RED}文件不存在：{path}{RST}")
         sys.exit(2)
 
-    data = json.load(open(path, encoding="utf-8"))
+    # v1.15.17（P2-2）：0 字节 / 纯空白 / 非法 JSON 给 exit=2 + 中文结论，
+    # 与 validate_booksource.py / js_layer_check.py 同口径（不再抛 Python 堆栈、exit=1）。
+    # 合法但无内容（[] / {}）正常走，不在此处误判；读不到内容才 exit=2。
+    try:
+        with open(path, encoding="utf-8") as _fh:
+            _raw = _fh.read()
+        data = json.loads(_raw)
+    except (json.JSONDecodeError, UnicodeDecodeError, OSError) as _e:
+        _size = 0
+        try:
+            _size = os.path.getsize(path)
+        except OSError:
+            pass
+        print(f"{RED}文件为空或无有效 JSON（{_size} 字节）：{path}{RST}")
+        sys.exit(2)
     books = data if isinstance(data, list) else [data]
 
     total_err = 0
@@ -312,7 +582,9 @@ def main():
         for c, m in res.errors:
             print(f"{RED}[ERROR]{RST} {c} {m}")
         for c, m, blocking in res.warns:
-            tag = "[WARN ]" if blocking else "[WARN·提示]"
+            # v1.15.15：标签对称。`[WARN ]` 的尾空格看着像排版，实际让「阻断/提示」在肉眼上
+            # 无法对齐分辨（一个 6 字、一个 8 字）；改成两个都是 8 字宽的中文标签。
+            tag = "[WARN·阻断]" if blocking else "[WARN·提示]"
             print(f"{YEL}{tag}{RST} {c} {m}")
         for c, m in res.notes:
             print(f"{GRN}[NOTE ]{RST} {c} {m}")
@@ -335,9 +607,19 @@ def main():
         sys.exit(1)
     if total_warn_info:
         print(f"{YEL}提示：有 {total_warn_info} 条提示级 WARN（不阻断 --strict）——建议实测确认，但不影响交付判定。{RST}")
-    # 通过时不复述 --strict 口径：回退实验里那句话会让「分支被短路」的日志与正常日志只差 exit code，
-    # 从输出看不出"本该失败"（v1.15.13 实测）。口径只在失败分支说一次。
-    print(f"{GRN}结论：请求层通过（ERROR=0）。注意：本闸只验「宿主能否解析并发出请求」，不验站点是否真返回预期内容，后者仍需真实页/真机证据。{RST}")
+    # v1.15.17（P2-1）：默认模式下若存在**阻断级** WARN，结论行必须改口。
+    # 旧行为是「标签写 [WARN·阻断]、结论写『请求层通过』、exit=0」——同一份报告自相矛盾，
+    # 读的人只会看见最后那句「通过」。exit 仍为 0：10 本已交付源在默认模式下的既有结论不能变，
+    # 改 exit 会让历史日志与现有判定对不上（任务书明写不许动）。
+    if total_warn:
+        print(f"{YEL}结论：请求层无 ERROR，但有 {total_warn} 条阻断级隐患"
+              f"（未加 --strict，按默认口径放行）——交付前须逐条处理：{RST}"
+              f"这些是「交付后真会坏」的隐患（分页失效/地址易失/证书不匹配）。")
+    else:
+        # 通过时不复述 --strict 口径：回退实验里那句话会让「分支被短路」的日志与正常日志只差 exit code，
+        # 从输出看不出"本该失败"（v1.15.13 实测）。口径只在失败分支说一次。
+        print(f"{GRN}结论：请求层通过（ERROR=0）。注意：本闸只验「宿主能否解析并发出请求」，不验站点是否真返回预期内容，后者仍需真实页/真机证据。{RST}")
+    sys.exit(0)
     sys.exit(0)
 
 

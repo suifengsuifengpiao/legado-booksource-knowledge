@@ -1,0 +1,7 @@
+[
+ {
+  "bookSourceName": "D3b_标题含URL_带换行",
+  "bookSourceUrl": "https://a.com",
+  "exploreUrl": "[\n{\"title\":\"2026榜单 https://a.com/20260101/\",\"url\":\"https://a.com/xh/{{page}}\n\"}]"
+ }
+]

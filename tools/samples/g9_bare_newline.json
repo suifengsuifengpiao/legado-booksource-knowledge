@@ -1,0 +1,7 @@
+[
+ {
+  "bookSourceName": "g9_裸换行_宽容度正例",
+  "bookSourceUrl": "https://a.com",
+  "exploreUrl": "[\n{\"title\":\"玄幻\",\"url\":\"https://a.com/xuanhuan/{{page}}/\n\"}\n]"
+ }
+]

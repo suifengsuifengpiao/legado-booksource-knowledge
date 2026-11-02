@@ -1,0 +1,7 @@
+[
+  {
+    "bookSourceName": "edge_ctrl_only 标本（无 {{}}、仅字符串内裸制表符）",
+    "bookSourceUrl": "https://a.com",
+    "exploreUrl": "[{\"title\":\"玄幻\t榜单\",\"url\":\"https://a.com/list\"}]"
+  }
+]

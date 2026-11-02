@@ -1,0 +1,7 @@
+[
+ {
+  "bookSourceName": "g10a_未转义选项在换行前",
+  "bookSourceUrl": "https://a.com",
+  "exploreUrl": "[\n{\"title\":\"都市\",\"url\":\"https://a.com/dushi/{{page}}/,{\"webView\":true}\n\"}\n]"
+ }
+]

@@ -1,0 +1,35 @@
+[
+  {
+    "bookSourceName": "示例书源(样例/测试用)",
+    "bookSourceUrl": "https://example.com",
+    "bookSourceType": 0,
+    "bookSourceGroup": "测试",
+    "bookSourceComment": "技能自带标准样例(Legado 3.0 真实 schema: 解析规则在顶层独立对象, 键名无 rule 前缀)。顶层为数组形态(本地导入要求)。用于打包前校验与 test_parse 演示。",
+    "enabled": true,
+    "enabledExplore": false,
+    "header": "{\"User-Agent\": \"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36\", \"Referer\": \"https://example.com/\"}",
+    "searchUrl": "/search?q={{key}},{\"charset\":\"utf-8\"}",
+    "ruleSearch": {
+      "bookList": "//div[@class='book']",
+      "name": "//a[@class='name']/text()",
+      "author": "//span[@class='author']/text()",
+      "bookUrl": "//a[@class='name']/@href",
+      "coverUrl": "//img/@src"
+    },
+    "ruleBookInfo": {
+      "name": "//h1[@class='title']/text()",
+      "author": "//span[@class='author']/text()",
+      "coverUrl": "//img[@class='cover']/@src",
+      "intro": "//div[@class='intro']//text()",
+      "tocUrl": "//a[@class='catalog']/@href"
+    },
+    "ruleToc": {
+      "chapterList": "//ul[@class='chapter-list']/li",
+      "chapterName": "//a/text()",
+      "chapterUrl": "//a/@href"
+    },
+    "ruleContent": {
+      "content": "//div[@id='content']##本章未完.*?下一页"
+    }
+  }
+]

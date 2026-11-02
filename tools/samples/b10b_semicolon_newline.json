@@ -1,0 +1,7 @@
+[
+ {
+  "bookSourceName": "B10b_分号地址_带换行",
+  "bookSourceUrl": "https://a.com",
+  "exploreUrl": "[\n{\"title\":\"玄幻\",\"url\":\"https://a.com/x?d=1;3333333{{page}}\n\"}]"
+ }
+]

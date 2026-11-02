@@ -1,34 +1,67 @@
-# 请求层闸 · 验收证据全文（v1.15.14）
+# 请求层闸 · 验收证据全文（v1.15.17）
 #
 # 为什么有这份文件：v1.15.11 对外写「对旧版实测 ERROR=4」，但 samples/ 里没有那份「旧版」，
 # 接收方无从复算 —— 这正是 E19「N/N 必须答得出在哪站的哪一页数的」被自己新闸违反的那一次。
-# 现在把三份标本的真实输出全文落盘，`evals/run_evals.py` 每次回归都按下面的 `# gen:` 命令行
+# 现在把每份标本的真实输出全文落盘，`evals/run_evals.py` 每次回归都按下面的 `# gen:` 命令行
 # 重跑一遍并逐字比对，闸的行为一旦漂移，回归立刻变红。
 #
-# v1.15.14 变更：WARN 分「阻断 / 提示」两级（R6 中文编码降为提示，不再让真机已验证的修复版
-# 在 --strict 下被判失败）；R5 先剥行内选项再判路径（此前 {"webWait":3000} 的 3000 被误当易失数字）。
-# 输出格式随之变化，故本文件按新格式整份重算——证据必须由命令生成，不许手改。
+# v1.15.15 变更（保留供对照）：① 控制字符改两步走（{{...}} 占位 + 字符串内控制字符转义后再解），
+# g10b（裸换行在前、未转义选项在后）由漏报 ERROR=0 改为 ERROR=1；② R3「不含 {{page}}」
+# 降为提示级；③ WARN 标签 [WARN ] → [WARN·阻断]，与 [WARN·提示] 对称；④ 第三条证据由临时夹具
+# 换成随包 samples/r6_default_get.json；⑤ NOTE 路径的 R5 不再被吞（X5/X1 一对正反对照）。
 #
-# 怎么自己复算（在技能根目录下）：
-#   python3 scripts/check_request_layer.py samples/duomle_incident_v4.json   # 期望 ERROR=4 exit=1
-#   python3 scripts/check_request_layer.py samples/duomle_fixed_v5.json --strict  # 期望 exit=0（仅提示级 WARN）
-#   python3 scripts/check_request_layer.py /tmp/t_A.json --strict             # 期望 exit=0（提示级 WARN 不阻断）
+# v1.15.17 变更（本版）：
+#   ① **R5 只看 path**：`_r5_volatile` 先 `split("?",1)[0]`，查询串里的 4+ 位数字不再报。
+#      后果是**口径变化不是修复**：b10a / b10b / c4（查询串带长数字）由阻断转通过，末三条即这三格。
+#      不用 `urlsplit(url).path` —— 相对路径（`/list/2026/?cid=5`）下它返回空 path，会漏判。
+#   ② **NOTE 路径改按复解出的 arr 逐条判**：不再从原文 `https?://` 粗提再按 11 个结构字符切碎。
+#      旧法在两个方向上错：该报的不报（B8b：加个裸换行就只报半段）、不该报的报（D3b：title 里的
+#      假 URL 被当 URL 判）。现在两条路径共用同一个 `_r5_volatile`、同一种 `[JSON[i]]「title」` 归属格式。
+#   ③ 归属自证：`d3_url_volatile_newline`（title 干净、url 易失）必须报 `[JSON[0]]「玄幻」`；
+#      `d3b_title_url_newline`（title 里放假 URL、url 干净）必须不报。两条一正一反互相钉住。
+#   ④ 相对路径反例：`a3_relative_path_query`（exploreUrl 写 `/list/2026/?cid=5`）必须报 `'2026'`——
+#      R5 判「原串 path 里有没有长数字」，与相对/绝对无关。这条同时钉住「不许改用 urlsplit().path」的
+#      正确理由：普通相对路径两者等价（M2 实测 urlsplit 也拿得到 path），只有 `//` 开头的协议相对路径会漏。
+#   ⑤ 多条目归属：`a5_multi_item_mixed`（第 0 项干净、第 1 项易失+裸换行）必须只报 `[JSON[1]]「武」`，
+#      不报到第 0 项、也不因存在干净项而整体沉默。
 #
-# gen: python3 scripts/check_request_layer.py samples/duomle_incident_v4.json;; python3 scripts/check_request_layer.py samples/duomle_fixed_v5.json --strict;; python3 scripts/check_request_layer.py /tmp/t_A.json --strict
-
+# A2 的 22 格（11 个结构字符 × clean/note 两形态）不进本文件：体积会盖过主标本，且它们的证据形态是
+# 「同一 url 只差一个裸换行、两格必须报同一段」——已落成 `evals/validate_cases.json` 的
+# `a2_sweep_*` 22 条用例，夹具在 `samples/sweep/`（与盲审原件逐字节一致），每条都带
+# `expect_attribution` 与逐字段名断言。复算：`python3 evals/run_evals.py`。
+#
+# 怎么自己复算（在技能根目录下，逐条执行；最后一条 `# gen:` 会把 15 条一次跑完）：
+#   python3 scripts/check_request_layer.py samples/duomle_incident_v4.json                 # 期望 ERROR=4 exit=1
+#   python3 scripts/check_request_layer.py samples/duomle_fixed_v5.json --strict           # 期望 exit=0（仅提示级 WARN）
+#   python3 scripts/check_request_layer.py samples/r6_default_get.json --strict            # 期望 exit=0（提示级 WARN 不阻断 strict）
+#   python3 scripts/check_request_layer.py samples/g9_bare_newline.json --strict           # 期望 ERROR=0，R1 走 NOTE
+#   python3 scripts/check_request_layer.py samples/g10a_option_before_newline.json         # 期望 ERROR=3 exit=1
+#   python3 scripts/check_request_layer.py samples/g10b_option_after_newline.json          # 期望 ERROR=1 exit=1
+#   python3 scripts/check_request_layer.py samples/x5_note_path_volatile.json --strict     # 期望 WARN=1(阻断) exit=1
+#   python3 scripts/check_request_layer.py samples/x1_note_path_clean.json --strict        # 期望 WARN=0 exit=0
+#   python3 scripts/check_request_layer.py samples/b10a_semicolon_clean.json --strict      # 期望 WARN=0 exit=0（口径变化）
+#   python3 scripts/check_request_layer.py samples/b10b_semicolon_newline.json --strict    # 期望 WARN=0 exit=0（口径变化）
+#   python3 scripts/check_request_layer.py samples/c4_query_digits.json --strict           # 期望 WARN=0 exit=0（口径变化）
+#   python3 scripts/check_request_layer.py samples/a3_relative_path_query.json --strict     # 期望 WARN=2(阻断1/提示1) exit=1，seg '2026'
+#   python3 scripts/check_request_layer.py samples/a5_multi_item_mixed.json --strict        # 期望 WARN=1(阻断) exit=1，归属 [JSON[1]]「武」
+#   python3 scripts/check_request_layer.py samples/d3_url_volatile_newline.json --strict   # 期望 WARN=1(阻断) exit=1，归属 [JSON[0]]「玄幻」
+#   python3 scripts/check_request_layer.py samples/d3b_title_url_newline.json --strict     # 期望 WARN=0 exit=0（title 不是 URL）
+#
+# gen: python3 scripts/check_request_layer.py samples/duomle_incident_v4.json;; python3 scripts/check_request_layer.py samples/duomle_fixed_v5.json --strict;; python3 scripts/check_request_layer.py samples/r6_default_get.json --strict;; python3 scripts/check_request_layer.py samples/g9_bare_newline.json --strict;; python3 scripts/check_request_layer.py samples/g10a_option_before_newline.json;; python3 scripts/check_request_layer.py samples/g10b_option_after_newline.json;; python3 scripts/check_request_layer.py samples/x5_note_path_volatile.json --strict;; python3 scripts/check_request_layer.py samples/x1_note_path_clean.json --strict;; python3 scripts/check_request_layer.py samples/b10a_semicolon_clean.json --strict;; python3 scripts/check_request_layer.py samples/b10b_semicolon_newline.json --strict;; python3 scripts/check_request_layer.py samples/c4_query_digits.json --strict;; python3 scripts/check_request_layer.py samples/a3_relative_path_query.json --strict;; python3 scripts/check_request_layer.py samples/d3_url_volatile_newline.json --strict;; python3 scripts/check_request_layer.py samples/d3b_title_url_newline.json --strict;; python3 scripts/check_request_layer.py samples/a5_multi_item_mixed.json --strict
 <!-- ACTUAL -->
 $ python3 scripts/check_request_layer.py samples/duomle_incident_v4.json
 
 [36m================================================================[0m
 [36m请求层闸 · 事故样本·duomle v4（勿导入·仅作闸门回归标本）[0m
 [36m================================================================[0m
-[31m[ERROR][0m R1 exploreUrl 声明为 JSON 数组但解析失败，约第 73 列：Expecting ',' delimiter: line 1 column 73 (char 72)
+[31m[ERROR][0m R1 exploreUrl 声明为 JSON 数组但解析失败，约第 71 列：Expecting ',' delimiter: line 1 column 71 (char 70)（按宿主宽容度复解后仍失败；gson lenient 档未适用（无可代换形态）→ 本闸不建模该形态，判 ERROR；直接解析报：Expecting ',' delimiter: line 1 column 73 (char 72)）
 [31m[ERROR][0m R1 疑似未转义的内嵌选项（此处双引号提前闭合字符串）：…[{"title":"玄幻","url":"https://www.duomle.com/class/xuanhuan/{{page}}/,{"webView":true,"webWait":3000}"},{"title"…
 [31m[ERROR][0m R1 修法一：内层引号转义为 \" ；修法二（更稳）：改用文本行格式 标题::URL,{"webView":true}
 [31m[ERROR][0m R4 method=POST 与 webView=true 互斥：Android WebView 只能 GET，POST body 会丢失，服务端收不到关键词（duomle 真机事故根因）
+[32m[NOTE ][0m R1 R1 判 ERROR，但结构已按 gson 口径复解出，R5 照常按条目判：命中 0 段
 [32m[NOTE ][0m R4 searchUrl method=POST, webView=True
 
-小计：ERROR=4  WARN=0（阻断 0 / 提示 0）  NOTE=1
+小计：ERROR=4  WARN=0（阻断 0 / 提示 0）  NOTE=2
 
 ================================================================
 [31m结论：请求层不通过，ERROR=4——这些错误 validate / test_parse 都查不出来，必须修完再交付。[0m
@@ -48,14 +81,14 @@ $ python3 scripts/check_request_layer.py samples/duomle_fixed_v5.json --strict
 [33m提示：有 1 条提示级 WARN（不阻断 --strict）——建议实测确认，但不影响交付判定。[0m
 [32m结论：请求层通过（ERROR=0）。注意：本闸只验「宿主能否解析并发出请求」，不验站点是否真返回预期内容，后者仍需真实页/真机证据。[0m
 [exit=0]
-$ python3 scripts/check_request_layer.py /tmp/t_A.json --strict
+$ python3 scripts/check_request_layer.py samples/r6_default_get.json --strict
 
 [36m================================================================[0m
-[36m请求层闸 · A[0m
+[36m请求层闸 · r6_default_get_裸searchUrl[0m
 [36m================================================================[0m
 [33m[WARN·提示][0m R6 GET URL 含 {{key}}：若宿主未自动编码，中文关键词可能未编码；建议 {{java.encodeURI(key)}} 或实测确认
 [32m[NOTE ][0m R1 exploreUrl 为空，跳过发现页检查
-[32m[NOTE ][0m R4 searchUrl method=GET, webView=False
+[32m[NOTE ][0m R4 searchUrl 无选项 → 按默认 method=GET, webView=False 检查
 
 小计：ERROR=0  WARN=1（阻断 0 / 提示 1）  NOTE=2
 
@@ -63,3 +96,172 @@ $ python3 scripts/check_request_layer.py /tmp/t_A.json --strict
 [33m提示：有 1 条提示级 WARN（不阻断 --strict）——建议实测确认，但不影响交付判定。[0m
 [32m结论：请求层通过（ERROR=0）。注意：本闸只验「宿主能否解析并发出请求」，不验站点是否真返回预期内容，后者仍需真实页/真机证据。[0m
 [exit=0]
+$ python3 scripts/check_request_layer.py samples/g9_bare_newline.json --strict
+
+[36m================================================================[0m
+[36m请求层闸 · g9_裸换行_宽容度正例[0m
+[36m================================================================[0m
+[32m[NOTE ][0m R1 exploreUrl 为 JSON 数组：Python json 直接解析失败（Invalid control character at: line 2 column 54 (char 55)），但按宿主 gson 宽容度复解通过（{{...}} 占位 + 字符串内控制字符转义）→ 判为解析器宽容度差异；**R3 因 {{...}} 已被占位、分页判据不可靠而跳过**（未检查 ≠ 已通过）；R5 已按复解出的 1 个条目逐条补判：无 4+ 位长数字段；JS 语法另用 js_layer_check.py / 真机验证
+[32m[NOTE ][0m R4 searchUrl 为空，跳过搜索检查
+
+小计：ERROR=0  WARN=0（阻断 0 / 提示 0）  NOTE=2
+
+================================================================
+[32m结论：请求层通过（ERROR=0）。注意：本闸只验「宿主能否解析并发出请求」，不验站点是否真返回预期内容，后者仍需真实页/真机证据。[0m
+[exit=0]
+$ python3 scripts/check_request_layer.py samples/g10a_option_before_newline.json
+
+[36m================================================================[0m
+[36m请求层闸 · g10a_未转义选项在换行前[0m
+[36m================================================================[0m
+[31m[ERROR][0m R1 exploreUrl 声明为 JSON 数组但解析失败，约第 52 列：Expecting ',' delimiter: line 2 column 52 (char 53)（按宿主宽容度复解后仍失败；gson lenient 档未适用（无可代换形态）→ 本闸不建模该形态，判 ERROR；直接解析报：Expecting ',' delimiter: line 2 column 54 (char 55)）
+[31m[ERROR][0m R1 疑似未转义的内嵌选项（此处双引号提前闭合字符串）：…[
+{"title":"都市","url":"https://a.com/dushi/{{page}}/,{"webView":true}
+"}
+]…
+[31m[ERROR][0m R1 修法一：内层引号转义为 \" ；修法二（更稳）：改用文本行格式 标题::URL,{"webView":true}
+[32m[NOTE ][0m R1 R1 判 ERROR，但结构已按 gson 口径复解出，R5 照常按条目判：命中 0 段
+[32m[NOTE ][0m R4 searchUrl 为空，跳过搜索检查
+
+小计：ERROR=3  WARN=0（阻断 0 / 提示 0）  NOTE=2
+
+================================================================
+[31m结论：请求层不通过，ERROR=3——这些错误 validate / test_parse 都查不出来，必须修完再交付。[0m
+[exit=1]
+$ python3 scripts/check_request_layer.py samples/g10b_option_after_newline.json
+
+[36m================================================================[0m
+[36m请求层闸 · g10b_未转义选项在换行后[0m
+[36m================================================================[0m
+[31m[ERROR][0m R1 exploreUrl 声明为 JSON 数组但解析失败，约第 54 列：Expecting ',' delimiter: line 2 column 54 (char 55)（按宿主宽容度复解后仍失败；gson lenient 档未适用（无可代换形态）→ 本闸不建模该形态，判 ERROR；直接解析报：Invalid control character at: line 2 column 51 (char 52)）
+[32m[NOTE ][0m R1 R1 判 ERROR，但结构已按 gson 口径复解出，R5 照常按条目判：命中 0 段
+[32m[NOTE ][0m R4 searchUrl 为空，跳过搜索检查
+
+小计：ERROR=1  WARN=0（阻断 0 / 提示 0）  NOTE=2
+
+================================================================
+[31m结论：请求层不通过，ERROR=1——这些错误 validate / test_parse 都查不出来，必须修完再交付。[0m
+[exit=1]
+$ python3 scripts/check_request_layer.py samples/x5_note_path_volatile.json --strict
+
+[36m================================================================[0m
+[36m请求层闸 · X5_换行加易失数字[0m
+[36m================================================================[0m
+[33m[WARN·阻断][0m R5 [JSON[0]]「军事」路径含长数字段 '20261102'，疑似易失地址；须用 3 个独立会话复验是否稳定
+[32m[NOTE ][0m R1 exploreUrl 为 JSON 数组：Python json 直接解析失败（Invalid control character at: line 2 column 57 (char 58)），但按宿主 gson 宽容度复解通过（{{...}} 占位 + 字符串内控制字符转义）→ 判为解析器宽容度差异；**R3 因 {{...}} 已被占位、分页判据不可靠而跳过**（未检查 ≠ 已通过）；R5 已按复解出的 1 个条目逐条补判：命中 1 段；JS 语法另用 js_layer_check.py / 真机验证
+[32m[NOTE ][0m R4 searchUrl 为空，跳过搜索检查
+
+小计：ERROR=0  WARN=1（阻断 1 / 提示 0）  NOTE=2
+
+================================================================
+[31m结论：--strict: 阻断级 WARN 视为失败，请求层不通过（阻断 WARN=1）。这些是「交付后真会坏」的隐患（分页失效/地址易失/证书不匹配），必须处理。[0m
+[exit=1]
+$ python3 scripts/check_request_layer.py samples/x1_note_path_clean.json --strict
+
+[36m================================================================[0m
+[36m请求层闸 · X1_纯宽容度差异[0m
+[36m================================================================[0m
+[32m[NOTE ][0m R1 exploreUrl 为 JSON 数组：Python json 直接解析失败（Invalid control character at: line 2 column 48 (char 49)），但按宿主 gson 宽容度复解通过（{{...}} 占位 + 字符串内控制字符转义）→ 判为解析器宽容度差异；**R3 因 {{...}} 已被占位、分页判据不可靠而跳过**（未检查 ≠ 已通过）；R5 已按复解出的 1 个条目逐条补判：无 4+ 位长数字段；JS 语法另用 js_layer_check.py / 真机验证
+[32m[NOTE ][0m R4 searchUrl 为空，跳过搜索检查
+
+小计：ERROR=0  WARN=0（阻断 0 / 提示 0）  NOTE=2
+
+================================================================
+[32m结论：请求层通过（ERROR=0）。注意：本闸只验「宿主能否解析并发出请求」，不验站点是否真返回预期内容，后者仍需真实页/真机证据。[0m
+[exit=0]
+$ python3 scripts/check_request_layer.py samples/b10a_semicolon_clean.json --strict
+
+[36m================================================================[0m
+[36m请求层闸 · B10a_分号地址_无换行[0m
+[36m================================================================[0m
+[32m[NOTE ][0m R1 exploreUrl 格式=JSON数组，共 1 项
+[32m[NOTE ][0m R4 searchUrl 为空，跳过搜索检查
+
+小计：ERROR=0  WARN=0（阻断 0 / 提示 0）  NOTE=2
+
+================================================================
+[32m结论：请求层通过（ERROR=0）。注意：本闸只验「宿主能否解析并发出请求」，不验站点是否真返回预期内容，后者仍需真实页/真机证据。[0m
+[exit=0]
+$ python3 scripts/check_request_layer.py samples/b10b_semicolon_newline.json --strict
+
+[36m================================================================[0m
+[36m请求层闸 · B10b_分号地址_带换行[0m
+[36m================================================================[0m
+[32m[NOTE ][0m R1 exploreUrl 为 JSON 数组：Python json 直接解析失败（Invalid control character at: line 2 column 57 (char 58)），但按宿主 gson 宽容度复解通过（{{...}} 占位 + 字符串内控制字符转义）→ 判为解析器宽容度差异；**R3 因 {{...}} 已被占位、分页判据不可靠而跳过**（未检查 ≠ 已通过）；R5 已按复解出的 1 个条目逐条补判：无 4+ 位长数字段；JS 语法另用 js_layer_check.py / 真机验证
+[32m[NOTE ][0m R4 searchUrl 为空，跳过搜索检查
+
+小计：ERROR=0  WARN=0（阻断 0 / 提示 0）  NOTE=2
+
+================================================================
+[32m结论：请求层通过（ERROR=0）。注意：本闸只验「宿主能否解析并发出请求」，不验站点是否真返回预期内容，后者仍需真实页/真机证据。[0m
+[exit=0]
+$ python3 scripts/check_request_layer.py samples/c4_query_digits.json --strict
+
+[36m================================================================[0m
+[36m请求层闸 · C4_查询串四位数字[0m
+[36m================================================================[0m
+[32m[NOTE ][0m R1 exploreUrl 格式=JSON数组，共 1 项
+[32m[NOTE ][0m R4 searchUrl 为空，跳过搜索检查
+
+小计：ERROR=0  WARN=0（阻断 0 / 提示 0）  NOTE=2
+
+================================================================
+[32m结论：请求层通过（ERROR=0）。注意：本闸只验「宿主能否解析并发出请求」，不验站点是否真返回预期内容，后者仍需真实页/真机证据。[0m
+[exit=0]
+$ python3 scripts/check_request_layer.py samples/a3_relative_path_query.json --strict
+
+[36m================================================================[0m
+[36m请求层闸 · A3_相对路径带查询串[0m
+[36m================================================================[0m
+[33m[WARN·提示][0m R3 [JSON[0]]「玄幻」URL 不含 {{page}}：分页机会提示（榜单/分类首页本来只有一页，是否缺陷取决于该分类有无第二页，静态判断不了）
+[33m[WARN·阻断][0m R5 [JSON[0]]「玄幻」路径含长数字段 '2026'，疑似易失地址；须用 3 个独立会话复验是否稳定
+[32m[NOTE ][0m R1 exploreUrl 格式=JSON数组，共 1 项
+[32m[NOTE ][0m R3 [JSON[0]]「玄幻」为相对路径，宿主以 bookSourceUrl(https://a.com) 拼接
+[32m[NOTE ][0m R4 searchUrl 为空，跳过搜索检查
+
+小计：ERROR=0  WARN=2（阻断 1 / 提示 1）  NOTE=3
+
+================================================================
+[31m结论：--strict: 阻断级 WARN 视为失败，请求层不通过（阻断 WARN=1）。这些是「交付后真会坏」的隐患（分页失效/地址易失/证书不匹配），必须处理。[0m
+[exit=1]
+$ python3 scripts/check_request_layer.py samples/d3_url_volatile_newline.json --strict
+
+[36m================================================================[0m
+[36m请求层闸 · A5_归属反例_标题干净地址易失[0m
+[36m================================================================[0m
+[33m[WARN·阻断][0m R5 [JSON[0]]「玄幻」路径含长数字段 '20261102'，疑似易失地址；须用 3 个独立会话复验是否稳定
+[32m[NOTE ][0m R1 exploreUrl 为 JSON 数组：Python json 直接解析失败（Invalid control character at: line 2 column 58 (char 59)），但按宿主 gson 宽容度复解通过（{{...}} 占位 + 字符串内控制字符转义）→ 判为解析器宽容度差异；**R3 因 {{...}} 已被占位、分页判据不可靠而跳过**（未检查 ≠ 已通过）；R5 已按复解出的 1 个条目逐条补判：命中 1 段；JS 语法另用 js_layer_check.py / 真机验证
+[32m[NOTE ][0m R4 searchUrl 为空，跳过搜索检查
+
+小计：ERROR=0  WARN=1（阻断 1 / 提示 0）  NOTE=2
+
+================================================================
+[31m结论：--strict: 阻断级 WARN 视为失败，请求层不通过（阻断 WARN=1）。这些是「交付后真会坏」的隐患（分页失效/地址易失/证书不匹配），必须处理。[0m
+[exit=1]
+$ python3 scripts/check_request_layer.py samples/d3b_title_url_newline.json --strict
+
+[36m================================================================[0m
+[36m请求层闸 · D3b_标题含URL_带换行[0m
+[36m================================================================[0m
+[32m[NOTE ][0m R1 exploreUrl 为 JSON 数组：Python json 直接解析失败（Invalid control character at: line 2 column 75 (char 76)），但按宿主 gson 宽容度复解通过（{{...}} 占位 + 字符串内控制字符转义）→ 判为解析器宽容度差异；**R3 因 {{...}} 已被占位、分页判据不可靠而跳过**（未检查 ≠ 已通过）；R5 已按复解出的 1 个条目逐条补判：无 4+ 位长数字段；JS 语法另用 js_layer_check.py / 真机验证
+[32m[NOTE ][0m R4 searchUrl 为空，跳过搜索检查
+
+小计：ERROR=0  WARN=0（阻断 0 / 提示 0）  NOTE=2
+
+================================================================
+[32m结论：请求层通过（ERROR=0）。注意：本闸只验「宿主能否解析并发出请求」，不验站点是否真返回预期内容，后者仍需真实页/真机证据。[0m
+[exit=0]
+$ python3 scripts/check_request_layer.py samples/a5_multi_item_mixed.json --strict
+
+[36m================================================================[0m
+[36m请求层闸 · 多条目混合[0m
+[36m================================================================[0m
+[33m[WARN·阻断][0m R5 [JSON[1]]「武」路径含长数字段 '20261102'，疑似易失地址；须用 3 个独立会话复验是否稳定
+[32m[NOTE ][0m R1 exploreUrl 为 JSON 数组：Python json 直接解析失败（Invalid control character at: line 3 column 55 (char 106)），但按宿主 gson 宽容度复解通过（{{...}} 占位 + 字符串内控制字符转义）→ 判为解析器宽容度差异；**R3 因 {{...}} 已被占位、分页判据不可靠而跳过**（未检查 ≠ 已通过）；R5 已按复解出的 2 个条目逐条补判：命中 1 段；JS 语法另用 js_layer_check.py / 真机验证
+[32m[NOTE ][0m R4 searchUrl 为空，跳过搜索检查
+
+小计：ERROR=0  WARN=1（阻断 1 / 提示 0）  NOTE=2
+
+================================================================
+[31m结论：--strict: 阻断级 WARN 视为失败，请求层不通过（阻断 WARN=1）。这些是「交付后真会坏」的隐患（分页失效/地址易失/证书不匹配），必须处理。[0m
+[exit=1]

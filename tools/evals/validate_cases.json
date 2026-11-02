@@ -1,0 +1,2171 @@
+{
+  "version": 4,
+  "desc": "validate_booksource.py 的正负样本集。bad=检测器必须报出(查不漏报)，good=检测器必须保持安静(查不误报)。每条 case 的 source 会被包成数组(除 wrap=raw)后喂给校验器；带 file_content 的用例是文件级标本(P3-10): 内容逐字节写入临时文件, 主断言 expect_exit_code。",
+  "cases": [
+    {
+      "id": "good-clean-baseline",
+      "purpose": "干净静态书源：零 ERROR；且不得对不依赖 cookie 的源刷 enabledCookieJar 噪音",
+      "wrap": "array",
+      "expect_error_count": 0,
+      "expect_warn_count": 0,
+      "forbid_contains": [
+        "enabledCookieJar",
+        "前导点",
+        "无捕获组",
+        "webWait",
+        "不存在的选项字段"
+      ],
+      "source": {
+        "bookSourceName": "干净基线",
+        "bookSourceUrl": "https://example.com",
+        "bookSourceType": 0,
+        "header": "{\"User-Agent\": \"Mozilla/5.0\", \"Referer\": \"https://example.com/\"}",
+        "searchUrl": "/search?q={{key}},{\"charset\":\"utf-8\"}",
+        "ruleSearch": {
+          "bookList": "//div[@class='book']",
+          "name": "//a/text()",
+          "bookUrl": "//a/@href"
+        },
+        "ruleBookInfo": {
+          "name": "//h1/text()"
+        },
+        "ruleToc": {
+          "chapterList": "//ul/li",
+          "chapterName": "//a/text()",
+          "chapterUrl": "//a/@href"
+        },
+        "ruleContent": {
+          "content": "//div[@id='content']##广告"
+        }
+      }
+    },
+    {
+      "id": "bad-xpath-leading-dot-in-search",
+      "purpose": "XPath 前导点：'.//' 开头会被判 CSS 模式 → 静默 0 条(无任何报错)，最难查的一类",
+      "wrap": "array",
+      "expect_error_contains": [
+        "前导点"
+      ],
+      "source": {
+        "bookSourceName": "前导点-搜索",
+        "bookSourceUrl": "https://example.com",
+        "header": "{\"User-Agent\": \"Mozilla/5.0\"}",
+        "searchUrl": "/search?q={{key}},{\"charset\":\"utf-8\"}",
+        "ruleSearch": {
+          "bookList": "//div[@class='book']",
+          "name": ".//div[@class='newnav']/h3/a/text()",
+          "bookUrl": "//a/@href"
+        },
+        "ruleBookInfo": {
+          "name": "//h1/text()"
+        },
+        "ruleToc": {
+          "chapterList": "//ul/li",
+          "chapterName": "//a/text()",
+          "chapterUrl": "//a/@href"
+        },
+        "ruleContent": {
+          "content": "//div[@id='content']##广告"
+        }
+      }
+    },
+    {
+      "id": "bad-xpath-single-dot-in-toc",
+      "purpose": "'./a/@href' 同样落 CSS 模式 → 目录静默空(TocEmptyException 的真凶之一)",
+      "wrap": "array",
+      "expect_error_contains": [
+        "前导点"
+      ],
+      "source": {
+        "bookSourceName": "前导点-目录",
+        "bookSourceUrl": "https://example.com",
+        "header": "{\"User-Agent\": \"Mozilla/5.0\"}",
+        "searchUrl": "/search?q={{key}},{\"charset\":\"utf-8\"}",
+        "ruleSearch": {
+          "bookList": "//div[@class='book']",
+          "name": "//a/text()",
+          "bookUrl": "//a/@href"
+        },
+        "ruleBookInfo": {
+          "name": "//h1/text()"
+        },
+        "ruleToc": {
+          "chapterList": "//ul/li",
+          "chapterName": "//a/text()",
+          "chapterUrl": "./a/@href"
+        },
+        "ruleContent": {
+          "content": "//div[@id='content']##广告"
+        }
+      }
+    },
+    {
+      "id": "bad-regex-no-capture-group",
+      "purpose": "'##^.*##$1' 正则无捕获组却引用 $1 → No group 1 异常/替换为空；应写 '^(.+)$'",
+      "wrap": "array",
+      "expect_error_contains": [
+        "无捕获组"
+      ],
+      "source": {
+        "bookSourceName": "无捕获组",
+        "bookSourceUrl": "https://example.com",
+        "header": "{\"User-Agent\": \"Mozilla/5.0\"}",
+        "searchUrl": "/search?q={{key}},{\"charset\":\"utf-8\"}",
+        "ruleSearch": {
+          "bookList": "//div[@class='book']",
+          "name": "//a/text()",
+          "bookUrl": "//a/@href##^.*##$1"
+        },
+        "ruleBookInfo": {
+          "name": "//h1/text()"
+        },
+        "ruleToc": {
+          "chapterList": "//ul/li",
+          "chapterName": "//a/text()",
+          "chapterUrl": "//a/@href"
+        },
+        "ruleContent": {
+          "content": "//div[@id='content']##广告"
+        }
+      }
+    },
+    {
+      "id": "bad-logincheckjs-with-js-tag",
+      "purpose": "loginCheckJs 带 <js> 标签：3.25 不剥标签，Rhino 在 '<' 处语法错(行号恒为 1)",
+      "wrap": "array",
+      "expect_error_contains": [
+        "<js> 标签"
+      ],
+      "source": {
+        "bookSourceName": "loginCheckJs-带标签",
+        "bookSourceUrl": "https://example.com",
+        "loginCheckJs": "<js>var b=result.body();result;",
+        "header": "{\"User-Agent\": \"Mozilla/5.0\"}",
+        "enabledCookieJar": true,
+        "searchUrl": "/search?q={{key}},{\"charset\":\"utf-8\"}",
+        "ruleSearch": {
+          "bookList": "//div[@class='book']",
+          "name": "//a/text()",
+          "bookUrl": "//a/@href"
+        },
+        "ruleBookInfo": {
+          "name": "//h1/text()"
+        },
+        "ruleToc": {
+          "chapterList": "//ul/li",
+          "chapterName": "//a/text()",
+          "chapterUrl": "//a/@href"
+        },
+        "ruleContent": {
+          "content": "//div[@id='content']##广告"
+        }
+      }
+    },
+    {
+      "id": "note-logincheckjs-alive",
+      "purpose": "loginCheckJs 不带标签：本 App(3.25 反编译版)实测生效，出 NOTE(生效/过验证墙可用)，不得再报「死字段」提示",
+      "wrap": "array",
+      "expect_error_count": 0,
+      "expect_note_contains": [
+        "loginCheckJs",
+        "生效"
+      ],
+      "forbid_contains": [
+        "死字段"
+      ],
+      "source": {
+        "bookSourceName": "loginCheckJs-生效提示",
+        "bookSourceUrl": "https://example.com",
+        "bookSourceType": 0,
+        "loginCheckJs": "var b=result.body();result;",
+        "header": "{\"User-Agent\": \"Mozilla/5.0\"}",
+        "enabledCookieJar": true,
+        "searchUrl": "/search?q={{key}},{\"charset\":\"utf-8\"}",
+        "ruleSearch": {
+          "bookList": "//div[@class='book']",
+          "name": "//a/text()",
+          "bookUrl": "//a/@href"
+        },
+        "ruleBookInfo": {
+          "name": "//h1/text()"
+        },
+        "ruleToc": {
+          "chapterList": "//ul/li",
+          "chapterName": "//a/text()",
+          "chapterUrl": "//a/@href"
+        },
+        "ruleContent": {
+          "content": "//div[@id='content']##广告"
+        }
+      }
+    },
+    {
+      "id": "warn-cookiejar-missing-when-needed",
+      "purpose": "用了 webView(疑似依赖 cookie)却未设 enabledCookieJar → 提示缺省 false、cookie 不落库",
+      "wrap": "array",
+      "expect_error_count": 0,
+      "expect_warn_contains": [
+        "enabledCookieJar"
+      ],
+      "source": {
+        "bookSourceName": "cookieJar-缺失",
+        "bookSourceUrl": "https://example.com",
+        "header": "{\"User-Agent\": \"Mozilla/5.0\"}",
+        "searchUrl": "/search?q={{key}},{\"charset\":\"utf-8\"}",
+        "ruleSearch": {
+          "bookList": "//div[@class='book']",
+          "name": "//a/text()",
+          "bookUrl": "//a/@href"
+        },
+        "ruleBookInfo": {
+          "name": "//h1/text()"
+        },
+        "ruleToc": {
+          "chapterList": "//ul/li",
+          "chapterName": "//a/text()",
+          "chapterUrl": "//a/@href,{\"webView\":true,\"webWait\":9000}"
+        },
+        "ruleContent": {
+          "content": "//div[@id='content']##广告"
+        }
+      }
+    },
+    {
+      "id": "warn-webviewdelaytime-too-small",
+      "purpose": "客户端 AES/crypto-js 解密站给 webWait=2000 明显不够 → 解密未完成就截取，正文仍空",
+      "wrap": "array",
+      "expect_error_count": 0,
+      "expect_warn_contains": [
+        "webWait=2000"
+      ],
+      "source": {
+        "bookSourceName": "webViewDelayTime-偏小",
+        "bookSourceUrl": "https://example.com",
+        "header": "{\"User-Agent\": \"Mozilla/5.0\"}",
+        "enabledCookieJar": true,
+        "searchUrl": "/search?q={{key}},{\"charset\":\"utf-8\"}",
+        "ruleSearch": {
+          "bookList": "//div[@class='book']",
+          "name": "//a/text()",
+          "bookUrl": "//a/@href"
+        },
+        "ruleBookInfo": {
+          "name": "//h1/text()"
+        },
+        "ruleToc": {
+          "chapterList": "//ul/li",
+          "chapterName": "//a/text()",
+          "chapterUrl": "//a/@href,{\"webView\":true,\"webWait\":2000}"
+        },
+        "ruleContent": {
+          "content": "//div[@id='content']##广告"
+        }
+      }
+    },
+    {
+      "id": "warn-webviewdelaytime-not-specified",
+      "purpose": "开了 webView 却没给 webWait → 默认等待不足，正文解密未完成被截取",
+      "wrap": "array",
+      "expect_error_count": 0,
+      "expect_warn_contains": [
+        "未指定 webWait"
+      ],
+      "source": {
+        "bookSourceName": "webWait-缺失",
+        "bookSourceUrl": "https://example.com",
+        "header": "{\"User-Agent\": \"Mozilla/5.0\"}",
+        "enabledCookieJar": true,
+        "searchUrl": "/search?q={{key}},{\"charset\":\"utf-8\"}",
+        "ruleSearch": {
+          "bookList": "//div[@class='book']",
+          "name": "//a/text()",
+          "bookUrl": "//a/@href"
+        },
+        "ruleBookInfo": {
+          "name": "//h1/text()"
+        },
+        "ruleToc": {
+          "chapterList": "//ul/li",
+          "chapterName": "//a/text()",
+          "chapterUrl": "//a/@href,{\"webView\":true}"
+        },
+        "ruleContent": {
+          "content": "//div[@id='content']##广告"
+        }
+      }
+    },
+    {
+      "id": "bad-single-object-delivery",
+      "purpose": "顶层单对象：App 本地导入(Gson)要求 BEGIN_ARRAY，单对象 ImportError → 用户以为'改了没生效'",
+      "wrap": "raw",
+      "expect_error_contains": [
+        "交付形态"
+      ],
+      "source": {
+        "bookSourceName": "单对象交付",
+        "bookSourceUrl": "https://example.com",
+        "header": "{\"User-Agent\": \"Mozilla/5.0\"}",
+        "searchUrl": "/search?q={{key}},{\"charset\":\"utf-8\"}",
+        "ruleSearch": {
+          "bookList": "//div[@class='book']",
+          "name": "//a/text()",
+          "bookUrl": "//a/@href"
+        },
+        "ruleBookInfo": {
+          "name": "//h1/text()"
+        },
+        "ruleToc": {
+          "chapterList": "//ul/li",
+          "chapterName": "//a/text()",
+          "chapterUrl": "//a/@href"
+        },
+        "ruleContent": {
+          "content": "//div[@id='content']##广告"
+        }
+      }
+    },
+    {
+      "id": "bad-missing-required-field",
+      "purpose": "缺必备顶层字段 bookSourceUrl",
+      "wrap": "array",
+      "expect_error_contains": [
+        "缺必备顶层字段"
+      ],
+      "source": {
+        "bookSourceName": "缺字段",
+        "header": "{\"User-Agent\": \"Mozilla/5.0\"}",
+        "searchUrl": "/search?q={{key}},{\"charset\":\"utf-8\"}",
+        "ruleSearch": {
+          "bookList": "//div[@class='book']",
+          "name": "//a/text()",
+          "bookUrl": "//a/@href"
+        },
+        "ruleBookInfo": {
+          "name": "//h1/text()"
+        },
+        "ruleToc": {
+          "chapterList": "//ul/li",
+          "chapterName": "//a/text()",
+          "chapterUrl": "//a/@href"
+        },
+        "ruleContent": {
+          "content": "//div[@id='content']##广告"
+        }
+      }
+    },
+    {
+      "id": "bad-searchurl-without-rulesearch",
+      "purpose": "配了 searchUrl 却没有顶层 ruleSearch → App 里搜索列表必为空",
+      "wrap": "array",
+      "expect_error_contains": [
+        "缺顶层 ruleSearch"
+      ],
+      "source": {
+        "bookSourceName": "缺搜索解析",
+        "bookSourceUrl": "https://example.com",
+        "header": "{\"User-Agent\": \"Mozilla/5.0\"}",
+        "searchUrl": "/search?q={{key}},{\"charset\":\"utf-8\"}",
+        "ruleBookInfo": {
+          "name": "//h1/text()"
+        },
+        "ruleToc": {
+          "chapterList": "//ul/li",
+          "chapterName": "//a/text()",
+          "chapterUrl": "//a/@href"
+        },
+        "ruleContent": {
+          "content": "//div[@id='content']##广告"
+        }
+      }
+    },
+    {
+      "id": "bad-tocurl-in-wrong-group",
+      "purpose": "tocUrl 写进 ruleToc(应属 ruleBookInfo) → 被 Gson 静默丢弃，目录回退详情页 → TocEmptyException",
+      "wrap": "array",
+      "expect_error_contains": [
+        "放错规则组"
+      ],
+      "source": {
+        "bookSourceName": "tocUrl-错组",
+        "bookSourceUrl": "https://example.com",
+        "header": "{\"User-Agent\": \"Mozilla/5.0\"}",
+        "searchUrl": "/search?q={{key}},{\"charset\":\"utf-8\"}",
+        "ruleSearch": {
+          "bookList": "//div[@class='book']",
+          "name": "//a/text()",
+          "bookUrl": "//a/@href"
+        },
+        "ruleBookInfo": {
+          "name": "//h1/text()"
+        },
+        "ruleToc": {
+          "tocUrl": "//a[@class='more']/@href",
+          "chapterList": "//ul/li",
+          "chapterName": "//a/text()",
+          "chapterUrl": "//a/@href"
+        },
+        "ruleContent": {
+          "content": "//div[@id='content']##广告"
+        }
+      }
+    },
+    {
+      "id": "good-cf-source-no-noise",
+      "purpose": "CF/验证墙站正确写法(cookieJar true + webView 9000 + JS 内净化)：零 ERROR 零 WARN，不得刷任何铁律噪音",
+      "wrap": "array",
+      "expect_error_count": 0,
+      "expect_warn_count": 0,
+      "forbid_contains": [
+        "enabledCookieJar",
+        "前导点",
+        "无捕获组",
+        "webWait",
+        "loginCheckJs",
+        "不存在的选项字段"
+      ],
+      "source": {
+        "bookSourceName": "CF站-正确写法",
+        "bookSourceUrl": "https://example.com",
+        "bookSourceType": 0,
+        "header": "{\"User-Agent\": \"Mozilla/5.0\", \"Referer\": \"https://example.com/\"}",
+        "enabledCookieJar": true,
+        "searchUrl": "/search?q={{key}},{\"charset\":\"utf-8\"}",
+        "ruleSearch": {
+          "bookList": "//div[@class='book']",
+          "name": "//a/text()",
+          "bookUrl": "//a/@href"
+        },
+        "ruleBookInfo": {
+          "name": "//h1/text()",
+          "tocUrl": "//a[@class='more']/@href##^(.+)$##$1,{\"webView\":true,\"webWait\":9000}"
+        },
+        "ruleToc": {
+          "chapterList": "//ul/li",
+          "chapterName": "//a/text()",
+          "chapterUrl": "//a/@href"
+        },
+        "ruleContent": {
+          "content": "//div[@id='article']//p[not(a)]//text()<js>var r=String(result);var o=[];var ls=r.split(String.fromCharCode(10));for(var i=0;i<ls.length;i++){var L=ls[i].trim();if(!L)continue;if(/转码失败/.test(L))break;o.push(L);}o.join(String.fromCharCode(10));"
+        }
+      }
+    },
+    {
+      "id": "good-urlopt-webwait-correct",
+      "purpose": "3.25 正确写法: 只写 webWait(配合 webView+webJs), 不得报 ERROR",
+      "wrap": "array",
+      "expect_error_count": 0,
+      "source": {
+        "bookSourceName": "正样本-webWait正确",
+        "bookSourceUrl": "https://example.com",
+        "bookSourceType": 0,
+        "header": "{\"User-Agent\": \"Mozilla/5.0\"}",
+        "ruleSearch": {
+          "bookList": "//div[@class='book']",
+          "name": "//a/text()",
+          "bookUrl": "//a/@href"
+        },
+        "ruleBookInfo": {
+          "name": "//h1/text()"
+        },
+        "ruleToc": {
+          "chapterList": "//ul/li",
+          "chapterName": "//a/text()",
+          "chapterUrl": "//a/@href"
+        },
+        "ruleContent": {
+          "content": "//div[@id='content']"
+        },
+        "searchUrl": "/s?k={{key}},{\"webView\":true,\"webWait\":3000,\"charset\":\"utf-8\",\"webJs\":\"try{document.cookie='x=;expires=Thu,01 Jan 1970 00:00:00 GMT;path=/';}catch(e){}var h=document.documentElement.outerHTML;if(h.indexOf('bookbox')<0)return '';return h;\"}"
+      }
+    },
+    {
+      "id": "bad-urlopt-unknown-field",
+      "purpose": "非 UrlOption 合法字段会被静默忽略，应至少 WARN 点名并列出合法字段",
+      "wrap": "array",
+      "expect_warn_contains": [
+        "fooBar"
+      ],
+      "source": {
+        "bookSourceName": "未知选项字段",
+        "bookSourceUrl": "https://example.com",
+        "header": "{\"User-Agent\": \"Mozilla/5.0\"}",
+        "ruleSearch": {
+          "bookList": "//div[@class='book']",
+          "name": "//a/text()",
+          "bookUrl": "//a/@href"
+        },
+        "ruleBookInfo": {
+          "name": "//h1/text()"
+        },
+        "ruleToc": {
+          "chapterList": "//ul/li",
+          "chapterName": "//a/text()",
+          "chapterUrl": "//a/@href"
+        },
+        "ruleContent": {
+          "content": "//div[@id='content']"
+        },
+        "searchUrl": "/s?k={{key}},{\"webView\":true,\"retry\":3,\"fooBar\":1,\"webWait\":5000,\"charset\":\"utf-8\"}"
+      }
+    },
+    {
+      "id": "bad-urlopt-webjs-async-promise",
+      "purpose": "webJs 返回 Promise 时 evaluateJavascript 拿到 '{}'，非空且非null → 判定成功并静默返回空内容，不报错不重试",
+      "wrap": "array",
+      "expect_error_contains": [
+        "async/await/Promise",
+        "'{}'"
+      ],
+      "source": {
+        "bookSourceName": "webJs-异步陷阱",
+        "bookSourceUrl": "https://example.com",
+        "header": "{\"User-Agent\": \"Mozilla/5.0\"}",
+        "ruleSearch": {
+          "bookList": "//div[@class='book']",
+          "name": "//a/text()",
+          "bookUrl": "//a/@href"
+        },
+        "ruleBookInfo": {
+          "name": "//h1/text()"
+        },
+        "ruleToc": {
+          "chapterList": "//ul/li",
+          "chapterName": "//a/text()",
+          "chapterUrl": "//a/@href"
+        },
+        "ruleContent": {
+          "content": "//div[@id='content']"
+        },
+        "searchUrl": "/s?k={{key}},{\"webView\":true,\"webJs\":\"(async function(){var r=await fetch(location.href);return await r.text();})()\",\"webWait\":5000,\"charset\":\"utf-8\"}"
+      }
+    },
+    {
+      "id": "warn-urlopt-webjs-without-delaytime",
+      "purpose": "填了 webJs 会使默认等待失效(只剩约100ms)，必须显式补 webWait",
+      "wrap": "array",
+      "expect_warn_contains": [
+        "webJs",
+        "webWait"
+      ],
+      "source": {
+        "bookSourceName": "webJs-缺等待时间",
+        "bookSourceUrl": "https://example.com",
+        "header": "{\"User-Agent\": \"Mozilla/5.0\"}",
+        "ruleSearch": {
+          "bookList": "//div[@class='book']",
+          "name": "//a/text()",
+          "bookUrl": "//a/@href"
+        },
+        "ruleBookInfo": {
+          "name": "//h1/text()"
+        },
+        "ruleToc": {
+          "chapterList": "//ul/li",
+          "chapterName": "//a/text()",
+          "chapterUrl": "//a/@href"
+        },
+        "ruleContent": {
+          "content": "//div[@id='content']"
+        },
+        "searchUrl": "/s?k={{key}},{\"webView\":true,\"webJs\":\"document.documentElement.outerHTML\",\"charset\":\"utf-8\"}"
+      }
+    },
+    {
+      "id": "warn-urlopt-bodyjs-in-webview",
+      "purpose": "bodyJs 只在非 webView 的 OkHttp 分支执行，webView 模式写了等于没写",
+      "wrap": "array",
+      "expect_warn_contains": [
+        "bodyJs",
+        "webView"
+      ],
+      "source": {
+        "bookSourceName": "bodyJs-webView无效",
+        "bookSourceUrl": "https://example.com",
+        "header": "{\"User-Agent\": \"Mozilla/5.0\"}",
+        "ruleSearch": {
+          "bookList": "//div[@class='book']",
+          "name": "//a/text()",
+          "bookUrl": "//a/@href"
+        },
+        "ruleBookInfo": {
+          "name": "//h1/text()"
+        },
+        "ruleToc": {
+          "chapterList": "//ul/li",
+          "chapterName": "//a/text()",
+          "chapterUrl": "//a/@href"
+        },
+        "ruleContent": {
+          "content": "//div[@id='content']"
+        },
+        "searchUrl": "/s?k={{key}},{\"webView\":true,\"bodyJs\":\"result\",\"webWait\":5000,\"charset\":\"utf-8\"}"
+      }
+    },
+    {
+      "id": "good-webview-canonical-form",
+      "purpose": "webView 的正确写法：webWait + 同步 webJs + 清理 cookie 用 try/c包住，不得产生 ERROR",
+      "wrap": "array",
+      "expect_error_count": 0,
+      "forbid_contains": [
+        "不存在的选项字段",
+        "async/await/Promise",
+        "webWait"
+      ],
+      "source": {
+        "bookSourceName": "正样本-WebView全套",
+        "bookSourceUrl": "https://example.com",
+        "bookSourceType": 0,
+        "header": "{\"User-Agent\": \"Mozilla/5.0\"}",
+        "ruleSearch": {
+          "bookList": "//div[@class='book']",
+          "name": "//a/text()",
+          "bookUrl": "//a/@href"
+        },
+        "ruleBookInfo": {
+          "name": "//h1/text()"
+        },
+        "ruleToc": {
+          "chapterList": "//ul/li",
+          "chapterName": "//a/text()",
+          "chapterUrl": "//a/@href"
+        },
+        "ruleContent": {
+          "content": "//div[@id='content']"
+        },
+        "searchUrl": "/s?k={{key}},{\"webView\":true,\"charset\":\"utf-8\",\"webJs\":\"try{document.cookie='x=;expires=Thu,01 Jan 1970 00:00:00 GMT;path=/';}catch(e){}document.documentElement.outerHTML\",\"webWait\":8000}"
+      }
+    },
+    {
+      "id": "bad-urlopt-webviewdelaytime-only",
+      "purpose": "3.25 只认 webWait；只写 webViewDelayTime 会被 Gson 静默丢弃、等待退回默认 → 必须 ERROR",
+      "wrap": "array",
+      "expect_error_contains": [
+        "webViewDelayTime",
+        "webWait"
+      ],
+      "source": {
+        "bookSourceName": "只写-webViewDelayTime-3.25无效",
+        "bookSourceUrl": "https://example.com",
+        "header": "{\"User-Agent\": \"Mozilla/5.0\"}",
+        "searchUrl": "/s?k={{key}},{\"webView\":true,\"webViewDelayTime\":3000,\"webJs\":\"(function(){return document.documentElement.outerHTML})()\",\"charset\":\"utf-8\"}",
+        "ruleSearch": {
+          "bookList": "//div",
+          "name": "//a",
+          "bookUrl": "//a/@href"
+        },
+        "ruleBookInfo": {
+          "name": "//h1"
+        },
+        "ruleToc": {
+          "chapterList": "//ul/li",
+          "chapterName": "//a",
+          "chapterUrl": "//a/@href"
+        },
+        "ruleContent": {
+          "content": "//div"
+        }
+      }
+    },
+    {
+      "id": "bad-xpath-jsoupxpath-unsupported",
+      "purpose": "JsoupXpath 引擎短板：text()[last()] / following-sibling:: 在 lxml 与浏览器控制台里都正常，但 Legado 内置 JsoupXpath 只实现 XPath 子集 → 真机抛 XPathSyntaxErrorException，本地极难发现",
+      "wrap": "array",
+      "expect_error_contains": [
+        "JsoupXpath 不支持"
+      ],
+      "source": {
+        "bookSourceName": "JsoupXpath不兼容语法",
+        "bookSourceUrl": "https://example.com",
+        "header": "{\"User-Agent\": \"Mozilla/5.0\"}",
+        "searchUrl": "/search?q={{key}},{\"charset\":\"utf-8\"}",
+        "ruleSearch": {
+          "bookList": "//div[@class='book']",
+          "name": "//div[@class='newnav']/h3/a/text()[last()]",
+          "bookUrl": "//a/@href"
+        },
+        "ruleBookInfo": {
+          "name": "//h1/text()",
+          "author": "//p/text()"
+        },
+        "ruleToc": {
+          "chapterList": "//ul/li",
+          "chapterName": "//a/text()",
+          "chapterUrl": "//a/@href",
+          "nextTocUrl": "//span[@class='cur']/following-sibling::a[1]/@href"
+        },
+        "ruleContent": {
+          "content": "//div[@id='content']//p/text()"
+        }
+      }
+    },
+    {
+      "id": "note-xpath-inferred-only-warn",
+      "purpose": "证据分级：preceding-sibling::/parent::/ancestor::/child::/descendant:: 是据 JsoupXpath 子集**推断**不支持、未获真机实证 → 只能 WARN, 绝不能 ERROR。万一某条其实被支持, 报 ERROR 会逼用户改掉本来能用的书源(护栏主动制造 bug)。只有真机实证过的 text()[ / following-sibling:: 才可 ERROR",
+      "wrap": "array",
+      "expect_error_count": 0,
+      "expect_warn_contains": [
+        "推断",
+        "未获真机实证"
+      ],
+      "source": {
+        "bookSourceName": "XPath推断组只应WARN",
+        "bookSourceUrl": "https://example.com",
+        "header": "{\"User-Agent\": \"Mozilla/5.0\"}",
+        "searchUrl": "/search?q={{key}},{\"charset\":\"utf-8\"}",
+        "ruleSearch": {
+          "bookList": "//div[@class='book']",
+          "name": "//h3/a/text()",
+          "bookUrl": "//a/@href"
+        },
+        "ruleBookInfo": {
+          "name": "//h1/text()",
+          "intro": "//div[@id='intro']/parent::div/text()"
+        },
+        "ruleToc": {
+          "chapterList": "//ul/li",
+          "chapterName": "//a/text()",
+          "chapterUrl": "//a/@href"
+        },
+        "ruleContent": {
+          "content": "//div[@id='content']//p/text()"
+        }
+      }
+    },
+    {
+      "id": "warn-dual-second-timestamp",
+      "purpose": "签名站踩过的偶发 403: 同一段 JS 里取了两次秒级时间戳(签名用一个、发请求用另一个), 跨秒导致签名里的 ts 与参数里的 ts 不一致 → 服务端偶发失败, 且极易误判成限流。必须 WARN。同一段 JS 刻意同时放在 searchUrl 与 ruleContent.content(两条采集路径会重叠), 用 expect_count_of 锁死「只能报 1 条」—— 1.13.14 自检正是抓到了它重复报 2 条",
+      "wrap": "array",
+      "expect_error_count": 0,
+      "expect_warn_contains": [
+        "秒级时间戳",
+        "Date.now()/1000"
+      ],
+      "source": {
+        "bookSourceName": "双时间戳应WARN",
+        "bookSourceUrl": "https://example.com",
+        "header": "{\"User-Agent\": \"Mozilla/5.0\", \"charset\": \"utf-8\"}",
+        "searchUrl": "<js>var ts=Math.floor(Date.now()/1000);var sg=\"x\"+ts;var ts2=Math.floor(Date.now()/1000);\"https://example.com/s?sg=\"+sg+\"&_ts=\"+ts2;</js>",
+        "ruleSearch": {
+          "bookList": "//div[@class='book']",
+          "name": "//h3/a/text()",
+          "bookUrl": "//a/@href"
+        },
+        "ruleToc": {
+          "chapterList": "//ul/li",
+          "chapterName": "//a/text()",
+          "chapterUrl": "//a/@href"
+        },
+        "ruleContent": {
+          "content": "<js>var ts=Math.floor(Date.now()/1000);var sg=\"x\"+ts;var ts2=Math.floor(Date.now()/1000);\"https://example.com/s?sg=\"+sg+\"&_ts=\"+ts2;</js>"
+        }
+      },
+      "expect_count_of": {
+        "秒级时间戳": 1
+      }
+    },
+    {
+      "id": "warn-sign-no-l0-probe",
+      "purpose": "签名类搜索未做 L0 证伪: 搜索含 sign 参数但 comment 无 L0/证伪 标记 → 必须 WARN 提醒先证伪, 未证伪前勿轻信无解(rrssk 实证)。锁住 1.13.16 新增的 L0 关卡不被回退。",
+      "wrap": "array",
+      "expect_error_count": 0,
+      "expect_warn_contains": [
+        "L0 证伪记录"
+      ],
+      "source": {
+        "bookSourceName": "签名站样例",
+        "bookSourceUrl": "https://sign.example.com",
+        "bookSourceType": 0,
+        "header": "{\"User-Agent\": \"Mozilla/5.0\"}",
+        "searchUrl": "/s?q={{key}},{\"charset\":\"utf-8\"}&sign=abc&_ts=1",
+        "ruleSearch": {
+          "bookList": "//div",
+          "name": "//h3/a/text()",
+          "bookUrl": "//a/@href"
+        },
+        "ruleBookInfo": {
+          "name": "//h1/text()"
+        },
+        "ruleToc": {
+          "chapterList": "//ul/li",
+          "chapterName": "//a/text()",
+          "chapterUrl": "//a/@href"
+        },
+        "ruleContent": {
+          "content": "//div[@id='content']//p/text()"
+        }
+      }
+    },
+    {
+      "id": "ok-sign-with-l0-probe",
+      "purpose": "签名站但已做 L0 证伪(comment 含 L0 标记) → 不应再有 L0 WARN。锁住\"做完证伪写进 comment 即可消音\", 避免误伤已验证的源。",
+      "wrap": "array",
+      "expect_error_count": 0,
+      "forbid_contains": [
+        "L0 证伪记录"
+      ],
+      "source": {
+        "bookSourceName": "签名站样例",
+        "bookSourceUrl": "https://sign.example.com",
+        "bookSourceType": 0,
+        "header": "{\"User-Agent\": \"Mozilla/5.0\"}",
+        "searchUrl": "/s?q={{key}},{\"charset\":\"utf-8\"}&sign=abc&_ts=1",
+        "ruleSearch": {
+          "bookList": "//div",
+          "name": "//h3/a/text()",
+          "bookUrl": "//a/@href"
+        },
+        "ruleBookInfo": {
+          "name": "//h1/text()"
+        },
+        "ruleToc": {
+          "chapterList": "//ul/li",
+          "chapterName": "//a/text()",
+          "chapterUrl": "//a/@href"
+        },
+        "ruleContent": {
+          "content": "//div[@id='content']//p/text()"
+        },
+        "comment": "L0已证伪服务端不校验"
+      }
+    },
+    {
+      "id": "warn-nexttocurl-last-child",
+      "purpose": "目录翻页取分页条尾页反模式: nextTocUrl=\".page-link:last-child@href\" 取到的是尾页而非下一页, 翻1~2页后跳尾页丢章(黄金屋998章书只拿298章实证)。必须 WARN(铁律20/#11检测)。",
+      "wrap": "array",
+      "expect_error_count": 0,
+      "expect_warn_contains": [
+        "最后一个链接"
+      ],
+      "source": {
+        "bookSourceName": "尾页反模式样例",
+        "bookSourceUrl": "https://example.com",
+        "header": "{\"User-Agent\": \"Mozilla/5.0\"}",
+        "searchUrl": "/search?q={{key}},{\"charset\":\"utf-8\"}",
+        "ruleToc": {
+          "chapterList": "#chapterList a",
+          "chapterName": "text",
+          "chapterUrl": "href",
+          "nextTocUrl": ".page-link:last-child@href"
+        },
+        "ruleSearch": {
+          "bookList": ".book-card",
+          "name": "a",
+          "bookUrl": "a@href"
+        }
+      }
+    },
+    {
+      "id": "good-nexttocurl-js-increment",
+      "purpose": "目录翻页用纯 JS 按页码确定性递增(黄金屋修复手法): nextTocUrl 为 @js: 找'下一页'优先否则page+1, 末页返回空串。不得触发'取尾页'WARN, 也不得误报其它(铁律20/#11检测不应误伤已用JS的源)。",
+      "wrap": "array",
+      "expect_error_count": 0,
+      "forbid_contains": [
+        "最后一个链接"
+      ],
+      "source": {
+        "bookSourceName": "JS页码递增样例",
+        "bookSourceUrl": "https://example.com",
+        "bookSourceType": 0,
+        "header": "{\"User-Agent\": \"Mozilla/5.0\"}",
+        "searchUrl": "/search?q={{key}},{\"charset\":\"utf-8\"}",
+        "ruleToc": {
+          "chapterList": "#chapterList a",
+          "chapterName": "text",
+          "chapterUrl": "href",
+          "nextTocUrl": "@js:(function(){var h=''+result,u=''+baseUrl,out='';var mm=h.match(/<a\\b[^>]*href\\s*=\\s*[\"']([^\"']+)[\"'][^>]*>(?:(?!<\\/a>)[\\s\\S]){0,80}?下一页/);if(mm&&mm[1]){out=mm[1];}else{var cur=1,max=0,has=false,pm=u.match(/[?&]page=(\\d+)/);if(pm){cur=parseInt(pm[1],10)||1;has=true;}var nr=/[?&]page=(\\d+)/g,v;while((v=nr.exec(h))){var n=parseInt(v[1],10);if(n>max){max=n;}}var nx=cur+1;if(max>=nx){out=has?u.replace(/([?&]page=)\\d+/,'$1'+nx):(u+(u.indexOf('?')>-1?'&':'?')+'page='+nx);}}return out;})()"
+        },
+        "ruleSearch": {
+          "bookList": ".book-card",
+          "name": "a",
+          "bookUrl": "a@href"
+        }
+      }
+    },
+    {
+      "id": "bad-urlopt-space-before-brace",
+      "purpose": "行内选项逗号后带空格(`url, {...}`)也必须被解析并校验：旧实现只认无空格 `,{` 且把正则 `,\\s*{` 当字面量做 in 判断(恒真死条件)，导致这类写法整段跳过字段校验、拼错字段漏报",
+      "wrap": "array",
+      "expect_error_contains": [
+        "webViewDelayTime",
+        "webWait"
+      ],
+      "source": {
+        "bookSourceName": "行内选项逗号后带空格",
+        "bookSourceUrl": "https://example.com",
+        "header": "{\"User-Agent\": \"Mozilla/5.0\"}",
+        "searchUrl": "/s?k={{key}}, {\"webView\":true,\"webViewDelayTime\":3000,\"charset\":\"utf-8\"}",
+        "ruleSearch": {
+          "bookList": "//div",
+          "name": "//a",
+          "bookUrl": "//a/@href"
+        },
+        "ruleBookInfo": {
+          "name": "//h1"
+        },
+        "ruleToc": {
+          "chapterList": "//ul/li",
+          "chapterName": "//a",
+          "chapterUrl": "//a/@href"
+        },
+        "ruleContent": {
+          "content": "//div"
+        }
+      }
+    },
+    {
+      "id": "bad-header-lineformat",
+      "purpose": "header 写成 'Key: Value' 行格式(3.25 反编译实锤静默丢弃) → 必须 ERROR(查不漏报)",
+      "wrap": "array",
+      "expect_error_contains": [
+        "header 不是合法 JSON 对象字符串"
+      ],
+      "source": {
+        "bookSourceName": "header-行格式",
+        "bookSourceUrl": "https://example.com",
+        "header": "User-Agent: Mozilla/5.0\nReferer: https://example.com/",
+        "searchUrl": "/search?q={{key}},{\"charset\":\"utf-8\"}",
+        "ruleSearch": {
+          "bookList": "//div[@class='book']",
+          "name": "//a/text()",
+          "bookUrl": "//a/@href"
+        },
+        "ruleBookInfo": {
+          "name": "//h1/text()"
+        },
+        "ruleToc": {
+          "chapterList": "//ul/li",
+          "chapterName": "//a/text()",
+          "chapterUrl": "//a/@href"
+        },
+        "ruleContent": {
+          "content": "//div[@id='content']##广告"
+        }
+      }
+    },
+    {
+      "id": "bad-top-charset-deadfield",
+      "purpose": "顶层 charset 死字段(3.25 静默丢弃) → 必须 WARN(查不漏报)",
+      "wrap": "array",
+      "expect_warn_contains": [
+        "顶层 charset 会被静默丢弃"
+      ],
+      "source": {
+        "bookSourceName": "顶层charset",
+        "bookSourceUrl": "https://example.com",
+        "header": "{\"User-Agent\": \"Mozilla/5.0\"}",
+        "charset": "UTF-8",
+        "searchUrl": "/search?q={{key}}",
+        "ruleSearch": {
+          "bookList": "//div[@class='book']",
+          "name": "//a/text()",
+          "bookUrl": "//a/@href"
+        },
+        "ruleBookInfo": {
+          "name": "//h1/text()"
+        },
+        "ruleToc": {
+          "chapterList": "//ul/li",
+          "chapterName": "//a/text()",
+          "chapterUrl": "//a/@href"
+        },
+        "ruleContent": {
+          "content": "//div[@id='content']##广告"
+        }
+      }
+    },
+    {
+      "id": "warn-parse-js-topreturn",
+      "purpose": "解析规则 <js> 顶层 return(非IIFE) → 必须 WARN(查不漏报)",
+      "wrap": "array",
+      "expect_warn_contains": [
+        "顶层 return"
+      ],
+      "source": {
+        "bookSourceName": "顶层return",
+        "bookSourceUrl": "https://example.com",
+        "header": "{\"User-Agent\": \"Mozilla/5.0\"}",
+        "searchUrl": "/search?q={{key}},{\"charset\":\"utf-8\"}",
+        "ruleSearch": {
+          "bookList": "//div[@class='book']",
+          "name": "<js>\nreturn 'x'\n</js>",
+          "bookUrl": "//a/@href"
+        },
+        "ruleBookInfo": {
+          "name": "//h1/text()"
+        },
+        "ruleToc": {
+          "chapterList": "//ul/li",
+          "chapterName": "//a/text()",
+          "chapterUrl": "//a/@href"
+        },
+        "ruleContent": {
+          "content": "//div[@id='content']##广告"
+        }
+      }
+    },
+    {
+      "id": "warn-concurrentrate-paging",
+      "purpose": "concurrentRate>0 且存在分页(ruleToc.nextTocUrl) → 必须 WARN(查不漏报)",
+      "wrap": "array",
+      "expect_warn_contains": [
+        "concurrentRate="
+      ],
+      "source": {
+        "bookSourceName": "concurrentRate分页",
+        "bookSourceUrl": "https://example.com",
+        "header": "{\"User-Agent\": \"Mozilla/5.0\"}",
+        "concurrentRate": "1000",
+        "searchUrl": "/search?q={{key}},{\"charset\":\"utf-8\"}",
+        "ruleSearch": {
+          "bookList": "//div[@class='book']",
+          "name": "//a/text()",
+          "bookUrl": "//a/@href"
+        },
+        "ruleBookInfo": {
+          "name": "//h1/text()"
+        },
+        "ruleToc": {
+          "chapterList": "//ul/li",
+          "chapterName": "//a/text()",
+          "chapterUrl": "//a/@href",
+          "nextTocUrl": "//a[@class='next']/@href"
+        },
+        "ruleContent": {
+          "content": "//div[@id='content']##广告"
+        }
+      }
+    },
+    {
+      "id": "bad-searchurl-js-return-json-object",
+      "purpose": "<js> 返回整体 JSON 对象(JSON.stringify({'url':...})) → 真机整体当 URL 请求, 必然 404",
+      "wrap": "array",
+      "source": {
+        "bookSourceName": "用例",
+        "bookSourceUrl": "https://example.com",
+        "bookSourceType": 0,
+        "header": "{\"User-Agent\": \"Mozilla/5.0\"}",
+        "ruleBookInfo": {
+          "name": "//h1/text()"
+        },
+        "ruleToc": {
+          "chapterList": "//ul/li",
+          "chapterName": "//a/text()",
+          "chapterUrl": "//a/@href"
+        },
+        "ruleContent": {
+          "content": "//div[@id='content']##广告"
+        },
+        "searchUrl": "<js>\nvar u='https://example.com/api/search?q='+key;\nreturn JSON.stringify({\"url\":u,\"charset\":\"UTF-8\"});\n</js>",
+        "ruleSearch": {
+          "bookList": "$.data.books[*]",
+          "name": "$.bookName",
+          "bookUrl": "$.bookUrl"
+        }
+      },
+      "expect_error_contains": [
+        "整体 JSON 对象"
+      ],
+      "expect_warn_count": 0
+    },
+    {
+      "id": "bad-searchurl-js-body-preencoded",
+      "purpose": "<js> 给 POST body 预编码关键词 → App 发送时二次编码, 服务端查无此书(code=0 空数组)",
+      "wrap": "array",
+      "source": {
+        "bookSourceName": "用例",
+        "bookSourceUrl": "https://example.com",
+        "bookSourceType": 0,
+        "header": "{\"User-Agent\": \"Mozilla/5.0\"}",
+        "ruleBookInfo": {
+          "name": "//h1/text()"
+        },
+        "ruleToc": {
+          "chapterList": "//ul/li",
+          "chapterName": "//a/text()",
+          "chapterUrl": "//a/@href"
+        },
+        "ruleContent": {
+          "content": "//div[@id='content']##广告"
+        },
+        "searchUrl": "<js>\nvar kw=String(key);\nreturn 'https://example.com/api/search,'+JSON.stringify({\"method\":\"POST\",\"body\":\"q=\"+encodeURIComponent(kw)});\n</js>",
+        "ruleSearch": {
+          "bookList": "$.data.books[*]",
+          "name": "$.bookName",
+          "bookUrl": "$.bookUrl"
+        }
+      },
+      "expect_warn_contains": [
+        "预编码"
+      ],
+      "expect_error_count": 0
+    },
+    {
+      "id": "good-searchurl-js-url-combo",
+      "purpose": "<js> 正确形态: return 'URL'+','+JSON.stringify(行内选项), URL query 可编码/body 不预编码",
+      "wrap": "array",
+      "source": {
+        "bookSourceName": "用例",
+        "bookSourceUrl": "https://example.com",
+        "bookSourceType": 0,
+        "header": "{\"User-Agent\": \"Mozilla/5.0\"}",
+        "ruleBookInfo": {
+          "name": "//h1/text()"
+        },
+        "ruleToc": {
+          "chapterList": "//ul/li",
+          "chapterName": "//a/text()",
+          "chapterUrl": "//a/@href"
+        },
+        "ruleContent": {
+          "content": "//div[@id='content']##广告"
+        },
+        "searchUrl": "<js>\nvar kw=String(key);\nreturn 'https://example.com/api/search?q='+encodeURIComponent(kw)+','+JSON.stringify({\"charset\":\"UTF-8\"});\n</js>",
+        "ruleSearch": {
+          "bookList": "$.data.books[*]",
+          "name": "$.bookName",
+          "bookUrl": "$.bookUrl"
+        }
+      },
+      "expect_error_count": 0,
+      "expect_warn_count": 0,
+      "forbid_contains": [
+        "整体 JSON 对象",
+        "预编码"
+      ]
+    },
+    {
+      "id": "bad-missing-booksource-type",
+      "purpose": "缺 bookSourceType: App 按默认 0(文本)静默处理, 音频(1)/图片(2)源会走错分组且用户无感知 → 必须 WARN(查不漏报)",
+      "wrap": "array",
+      "expect_error_count": 0,
+      "expect_warn_contains": [
+        "bookSourceType"
+      ],
+      "source": {
+        "bookSourceName": "缺书源类型",
+        "bookSourceUrl": "https://example.com",
+        "header": "{\"User-Agent\": \"Mozilla/5.0\"}",
+        "searchUrl": "/search?q={{key}},{\"charset\":\"utf-8\"}",
+        "ruleSearch": {
+          "bookList": "//div[@class='book']",
+          "name": "//a/text()",
+          "bookUrl": "//a/@href"
+        },
+        "ruleBookInfo": {
+          "name": "//h1/text()"
+        },
+        "ruleToc": {
+          "chapterList": "//ul/li",
+          "chapterName": "//a/text()",
+          "chapterUrl": "//a/@href"
+        },
+        "ruleContent": {
+          "content": "//div[@id='content']"
+        }
+      }
+    },
+    {
+      "id": "bad-booksourcetype-illegal-value",
+      "purpose": "bookSourceType=4 非法值(合法全集 0/1/2/3, dex实证) → 必须 WARN(查不漏报)",
+      "wrap": "array",
+      "expect_error_count": 0,
+      "expect_warn_contains": [
+        "bookSourceType"
+      ],
+      "source": {
+        "bookSourceName": "非法书源类型",
+        "bookSourceUrl": "https://example.com",
+        "bookSourceType": 4,
+        "header": "{\"User-Agent\": \"Mozilla/5.0\"}",
+        "searchUrl": "/search?q={{key}},{\"charset\":\"utf-8\"}",
+        "ruleSearch": {
+          "bookList": "//div[@class='book']",
+          "name": "//a/text()",
+          "bookUrl": "//a/@href"
+        },
+        "ruleBookInfo": {
+          "name": "//h1/text()"
+        },
+        "ruleToc": {
+          "chapterList": "//ul/li",
+          "chapterName": "//a/text()",
+          "chapterUrl": "//a/@href"
+        },
+        "ruleContent": {
+          "content": "//div[@id='content']"
+        }
+      }
+    },
+    {
+      "id": "good-booksourcetype-string-zero",
+      "purpose": "bookSourceType 写成字符串 \"0\": 部分编辑器/导出工具的产物, Gson 能转 → 宽容放行不得 WARN(宁可少抓不可乱叫)",
+      "wrap": "array",
+      "expect_error_count": 0,
+      "expect_warn_count": 0,
+      "forbid_contains": [
+        "bookSourceType"
+      ],
+      "source": {
+        "bookSourceName": "字符串书源类型",
+        "bookSourceUrl": "https://example.com",
+        "bookSourceType": "0",
+        "header": "{\"User-Agent\": \"Mozilla/5.0\"}",
+        "searchUrl": "/search?q={{key}},{\"charset\":\"utf-8\"}",
+        "ruleSearch": {
+          "bookList": "//div[@class='book']",
+          "name": "//a/text()",
+          "bookUrl": "//a/@href"
+        },
+        "ruleBookInfo": {
+          "name": "//h1/text()"
+        },
+        "ruleToc": {
+          "chapterList": "//ul/li",
+          "chapterName": "//a/text()",
+          "chapterUrl": "//a/@href"
+        },
+        "ruleContent": {
+          "content": "//div[@id='content']##广告"
+        }
+      }
+    },
+    {
+      "id": "good-booksourcetype-file-3",
+      "purpose": "bookSourceType=3(文件)是合法值(dex三证据: arrays.xml四项+EditActivity type=3独立分支+schema文档) → 不得 WARN(v1.14.1 曾误报非法, 护栏不得制造bug)",
+      "wrap": "array",
+      "expect_error_count": 0,
+      "expect_warn_count": 0,
+      "forbid_contains": [
+        "bookSourceType"
+      ],
+      "source": {
+        "bookSourceName": "文件类书源类型",
+        "bookSourceUrl": "https://example.com",
+        "bookSourceType": 3,
+        "header": "{\"User-Agent\": \"Mozilla/5.0\"}",
+        "searchUrl": "/search?q={{key}},{\"charset\":\"utf-8\"}",
+        "ruleSearch": {
+          "bookList": "//div[@class='book']",
+          "name": "//a/text()",
+          "bookUrl": "//a/@href"
+        },
+        "ruleBookInfo": {
+          "name": "//h1/text()"
+        },
+        "ruleToc": {
+          "chapterList": "//ul/li",
+          "chapterName": "//a/text()",
+          "chapterUrl": "//a/@href"
+        },
+        "ruleContent": {
+          "content": "//div[@id='content']##广告"
+        }
+      }
+    },
+    {
+      "id": "good-stdin-mode",
+      "purpose": "stdin 模式(cat 书源.json | python3 validate_booksource.py -)曾因 text 未赋值 100% 崩栈 → 固化回归: 该路径必须与文件路径同等校验且零 ERROR/WARN",
+      "wrap": "array",
+      "stdin": true,
+      "expect_error_count": 0,
+      "expect_warn_count": 0,
+      "source": {
+        "bookSourceName": "标准输入模式",
+        "bookSourceUrl": "https://example.com",
+        "bookSourceType": 0,
+        "header": "{\"User-Agent\": \"Mozilla/5.0\"}",
+        "searchUrl": "/search?q={{key}},{\"charset\":\"utf-8\"}",
+        "ruleSearch": {
+          "bookList": "//div[@class='book']",
+          "name": "//a/text()",
+          "bookUrl": "//a/@href"
+        },
+        "ruleBookInfo": {
+          "name": "//h1/text()"
+        },
+        "ruleToc": {
+          "chapterList": "//ul/li",
+          "chapterName": "//a/text()",
+          "chapterUrl": "//a/@href"
+        },
+        "ruleContent": {
+          "content": "//div[@id='content']##广告"
+        }
+      }
+    },
+    {
+      "id": "good-booksourcetype-float-zero",
+      "purpose": "bookSourceType=1.0(浮点写法): Gson 截断成 1 当合法值 → 不得误报非法(v1.14.2 的 int('1.0') 失败曾误报为非法值, P3-2 修复)",
+      "wrap": "array",
+      "expect_error_count": 0,
+      "expect_warn_count": 0,
+      "forbid_contains": [
+        "bookSourceType"
+      ],
+      "source": {
+        "bookSourceName": "浮点书源类型",
+        "bookSourceUrl": "https://example.com",
+        "bookSourceType": 1.0,
+        "header": "{\"User-Agent\": \"Mozilla/5.0\"}",
+        "searchUrl": "/search?q={{key}},{\"charset\":\"utf-8\"}",
+        "ruleSearch": {
+          "bookList": "//div[@class='book']",
+          "name": "//a/text()",
+          "bookUrl": "//a/@href"
+        },
+        "ruleBookInfo": {
+          "name": "//h1/text()"
+        },
+        "ruleToc": {
+          "chapterList": "//ul/li",
+          "chapterName": "//a/text()",
+          "chapterUrl": "//a/@href"
+        },
+        "ruleContent": {
+          "content": "//div[@id='content']##广告"
+        }
+      }
+    },
+    {
+      "id": "good-no-false-l0-token",
+      "purpose": "searchUrl 含 &token=xxx 会话参数(无 sign 共存): 不得误推'签名站未证伪'(P3-4 收紧 \\btoken\\b 独立匹配, 仅 sign/token 共存才算签名特征)",
+      "wrap": "array",
+      "expect_error_count": 0,
+      "expect_warn_count": 0,
+      "forbid_contains": [
+        "签名",
+        "证伪"
+      ],
+      "source": {
+        "bookSourceName": "含token会话参数",
+        "bookSourceUrl": "https://example.com",
+        "bookSourceType": 0,
+        "header": "{\"User-Agent\": \"Mozilla/5.0\"}",
+        "searchUrl": "https://example.com/s?q={{key}}&token=abc123,{\"charset\":\"utf-8\"}",
+        "ruleSearch": {
+          "bookList": "//div[@class='book']",
+          "name": "//a/text()",
+          "bookUrl": "//a/@href"
+        },
+        "ruleBookInfo": {
+          "name": "//h1/text()"
+        },
+        "ruleToc": {
+          "chapterList": "//ul/li",
+          "chapterName": "//a/text()",
+          "chapterUrl": "//a/@href"
+        },
+        "ruleContent": {
+          "content": "//div[@id='content']##广告"
+        }
+      }
+    },
+    {
+      "id": "bad-list-js-with-selector-subrules",
+      "purpose": "列表 <js> 返回 HTML 字符串数组 + 纯选择器子规则: 真机把字符串元素当列表元素, 不解析成 HTML, 选择器确定性取空(mowan v2 实证: 列表大小255但书名全空、书籍总数0)",
+      "wrap": "array",
+      "expect_error_count": 0,
+      "expect_warn_contains": [
+        "字符串元素"
+      ],
+      "source": {
+        "bookSourceName": "列表js选择器混用",
+        "bookSourceUrl": "https://example.com",
+        "bookSourceType": 0,
+        "header": "{\"User-Agent\": \"Mozilla/5.0\", \"Referer\": \"https://example.com/\"}",
+        "searchUrl": "/search?q={{key}},{\"charset\":\"utf-8\"}",
+        "ruleSearch": {
+          "bookList": "<js>(function(){function _p(r){if(r==null)return null;var raw;if(typeof r==='string'){raw=r;}else if(typeof r.body==='function'){raw=r.body();}else{raw=String(r);}if(raw==null)return null;try{return JSON.parse(raw);}catch(e){}if(typeof r==='object'&&typeof r.body!=='function'){return r;}return null;}var d=_p(result);var items=(d&&d.data&&d.data.items)||[];var out=[];for(var i=0;i<items.length;i++){out.push('<div class=\"book-name\">'+items[i].name+'</div>');}return out;})()</js>",
+          "name": ".book-name@text",
+          "author": ".book-name@text",
+          "bookUrl": ".book-name@href"
+        },
+        "ruleBookInfo": {
+          "name": "//h1/text()"
+        },
+        "ruleToc": {
+          "chapterList": "//ul/li",
+          "chapterName": "//a/text()",
+          "chapterUrl": "//a/@href"
+        },
+        "ruleContent": {
+          "content": "//div[@id='content']"
+        }
+      }
+    },
+    {
+      "id": "good-list-js-with-js-subrules",
+      "purpose": "列表 <js> 返回 JSON 字符串元素 + 子规则全 <js>：mowan v4 实证形态的合法通道 B(子规则内联自含, P2-1 坐实后同步; 旧跨片段 _p 引用已作废)，检测器必须安静(不误报)",
+      "wrap": "array",
+      "expect_error_count": 0,
+      "expect_warn_count": 0,
+      "forbid_contains": [
+        "字符串元素"
+      ],
+      "source": {
+        "bookSourceName": "列表JS与子规则JS化",
+        "bookSourceUrl": "https://example.com",
+        "bookSourceType": 0,
+        "header": "{\"User-Agent\": \"Mozilla/5.0\", \"Referer\": \"https://example.com/\"}",
+        "searchUrl": "/search?q={{key}},{\"charset\":\"utf-8\"}",
+        "ruleSearch": {
+          "bookList": "<js>(function(){function _p(r){if(r==null)return null;var raw;if(typeof r==='string'){raw=r;}else if(typeof r.body==='function'){raw=r.body();}else{raw=String(r);}if(raw==null)return null;try{return JSON.parse(raw);}catch(e){}if(typeof r==='object'&&typeof r.body!=='function'){return r;}return null;}var d=_p(result);var items=(d&&d.data&&d.data.items)||[];var out=[];for(var i=0;i<items.length;i++){if(items[i].type!=='novel')continue;out.push(JSON.stringify(items[i]));}return out;})()</js>",
+          "name": "<js>(function(){try{var d=JSON.parse(result);return (d&&d.name)||'';}catch(e){return '';}})()</js>",
+          "author": "<js>(function(){try{var d=JSON.parse(result);return (d&&d.author)||'';}catch(e){return '';}})()</js>",
+          "coverUrl": "<js>(function(){try{var d=JSON.parse(result);return (d&&d.cover)||'';}catch(e){return '';}})()</js>",
+          "intro": "<js>(function(){try{var d=JSON.parse(result);return (d&&d.intro)||'';}catch(e){return '';}})()</js>",
+          "kind": "<js>(function(){try{var d=JSON.parse(result);return (d&&d.category)||'';}catch(e){return '';}})()</js>",
+          "bookUrl": "<js>(function(){try{var d=JSON.parse(result);return 'https://example.com/book/'+(d&&d.id);}catch(e){return '';}})()</js>"
+        },
+        "ruleBookInfo": {
+          "name": "<js>(function(){function _p(r){if(r==null)return null;var raw;if(typeof r==='string'){raw=r;}else if(typeof r.body==='function'){raw=r.body();}else{raw=String(r);}if(raw==null)return null;try{return JSON.parse(raw);}catch(e){}if(typeof r==='object'&&typeof r.body!=='function'){return r;}return null;}var d=_p(result);return (d&&d.data&&d.data.name)||'';})()</js>",
+          "tocUrl": "<js>(function(){function _p(r){if(r==null)return null;var raw;if(typeof r==='string'){raw=r;}else if(typeof r.body==='function'){raw=r.body();}else{raw=String(r);}if(raw==null)return null;try{return JSON.parse(raw);}catch(e){}if(typeof r==='object'&&typeof r.body!=='function'){return r;}return null;}var d=_p(result);return 'https://example.com/toc?book_id='+(d&&d.data&&d.data.id);})()</js>"
+        },
+        "ruleToc": {
+          "chapterList": "<js>(function(){function _p(r){if(r==null)return null;var raw;if(typeof r==='string'){raw=r;}else if(typeof r.body==='function'){raw=r.body();}else{raw=String(r);}if(raw==null)return null;try{return JSON.parse(raw);}catch(e){}if(typeof r==='object'&&typeof r.body!=='function'){return r;}return null;}var d=_p(result);var chs=(d&&d.data&&d.data.chapters)||[];var out=[];for(var i=0;i<chs.length;i++){out.push(JSON.stringify(chs[i]));}return out;})()</js>",
+          "chapterName": "<js>(function(){try{var d=JSON.parse(result);return (d&&d.name)||'';}catch(e){return '';}})()</js>",
+          "chapterUrl": "<js>(function(){try{var d=JSON.parse(result);return 'https://example.com/chapter/'+(d&&d.id);}catch(e){return '';}})()</js>"
+        },
+        "ruleContent": {
+          "content": "<js>(function(){function _p(r){if(r==null)return null;var raw;if(typeof r==='string'){raw=r;}else if(typeof r.body==='function'){raw=r.body();}else{raw=String(r);}if(raw==null)return null;try{return JSON.parse(raw);}catch(e){}if(typeof r==='object'&&typeof r.body!=='function'){return r;}return null;}var d=_p(result);var ps=(d&&d.data&&d.data.paragraphs)||[];var h='';for(var i=0;i<ps.length;i++){var t=String((ps[i]&&ps[i].text)||'').trim();if(!t)continue;h+='<p>'+t+'</p>';}return h;})()</js>"
+        }
+      }
+    },
+    {
+      "id": "good-list-js-chained-selector",
+      "purpose": "列表 <js> 返串 + 尾段选择器(链式形态): JS 输出经 Jsoup.parse 成 DOM 供尾部选择器求值, 列表元素是真实 DOM, 选择器子规则正常 —— 58书屋在售源实证, 检测器必须安静",
+      "wrap": "array",
+      "expect_error_count": 0,
+      "expect_warn_count": 0,
+      "forbid_contains": [
+        "字符串元素"
+      ],
+      "source": {
+        "bookSourceName": "链式列表JS",
+        "bookSourceUrl": "https://example.com",
+        "bookSourceType": 0,
+        "header": "{\"User-Agent\": \"Mozilla/5.0\", \"Referer\": \"https://example.com/\"}",
+        "searchUrl": "/search?q={{key}},{\"charset\":\"utf-8\"}",
+        "ruleSearch": {
+          "bookList": "<js>(function(){function _p(r){if(r==null)return null;var raw;if(typeof r==='string'){raw=r;}else if(typeof r.body==='function'){raw=r.body();}else{raw=String(r);}if(raw==null)return null;try{return JSON.parse(raw);}catch(e){}if(typeof r==='object'&&typeof r.body!=='function'){return r;}return null;}var d=_p(result);var items=(d&&d.data&&d.data.items)||[];var h='';for(var i=0;i<items.length;i++){h+='<div class=\"book-item\"><a class=\"book-link\" href=\"/book/'+items[i].id+'\">'+items[i].name+'</a><span class=\"book-author\">'+items[i].author+'</span><img class=\"book-cover\" src=\"'+items[i].cover+'\"><p class=\"book-intro\">'+items[i].intro+'</p></div>';}return h;})()</js>div.book-item",
+          "name": "class.book-link@text",
+          "author": "class.book-author@text",
+          "bookUrl": "class.book-link@href",
+          "coverUrl": "img@src",
+          "intro": ".book-intro@text"
+        },
+        "ruleBookInfo": {
+          "name": "//h1/text()",
+          "author": "//p[@class='author']/text()",
+          "tocUrl": "//a[@id='toc']/@href"
+        },
+        "ruleToc": {
+          "chapterList": "//ul[@id='chapters']/li",
+          "chapterName": "//a/text()",
+          "chapterUrl": "//a/@href"
+        },
+        "ruleContent": {
+          "content": "//div[@id='content']",
+          "replaceRegex": "##(本章未完.*?$)|(手机阅读.*?$)"
+        }
+      }
+    },
+    {
+      "id": "bad-explore-embedded-js-list",
+      "purpose": "exploreUrl 结构(a): 每条内嵌字符串化 ruleExplore, 内含 <js> 列表规则 + 纯选择器子规则 —— 字符串化 JSON 里键名不可见, 只查顶层 ruleExplore 会整体漏报(验证师 Major-3 实证的漏报通道)",
+      "wrap": "array",
+      "expect_error_count": 0,
+      "expect_warn_contains": [
+        "ruleExplore#0",
+        "字符串元素"
+      ],
+      "source": {
+        "bookSourceName": "发现内嵌列表JS",
+        "bookSourceUrl": "https://example.com",
+        "bookSourceType": 0,
+        "header": "{\"User-Agent\": \"Mozilla/5.0\", \"Referer\": \"https://example.com/\"}",
+        "exploreUrl": [
+          {
+            "title": "发现",
+            "url": "/explore",
+            "ruleExplore": "{\"bookList\": \"<js>(function(){function _p(r){if(r==null)return null;var raw;if(typeof r==='string'){raw=r;}else if(typeof r.body==='function'){raw=r.body();}else{raw=String(r);}if(raw==null)return null;try{return JSON.parse(raw);}catch(e){}if(typeof r==='object'&&typeof r.body!=='function'){return r;}return null;}var d=_p(result);var items=(d&&d.data&&d.data.items)||[];var out=[];for(var i=0;i<items.length;i++){out.push('<div class=\\\"book-name\\\">'+items[i].name+'</div>');}return out;})()</js>\", \"name\": \".book-name@text\", \"author\": \".book-name@text\", \"bookUrl\": \".book-name@href\"}"
+          }
+        ],
+        "ruleBookInfo": {
+          "name": "//h1/text()"
+        },
+        "ruleToc": {
+          "chapterList": "//ul/li",
+          "chapterName": "//a/text()",
+          "chapterUrl": "//a/@href"
+        },
+        "ruleContent": {
+          "content": "//div[@id='content']",
+          "replaceRegex": "##广告"
+        }
+      }
+    },
+    {
+      "id": "bad-list-js-old-schema-searchurl",
+      "purpose": "旧 schema: 无顶层 ruleSearch, 规则内嵌于字符串化 searchUrl 对象 —— _get_search_region 能识别该区域, #12 必须覆盖(验证师 A' 复证实证的旧口径漏报通道, P2 修复)",
+      "wrap": "array",
+      "expect_error_count": 0,
+      "expect_warn_contains": [
+        "ruleSearch",
+        "字符串元素"
+      ],
+      "source": {
+        "bookSourceName": "旧schema列表JS",
+        "bookSourceUrl": "https://example.com",
+        "bookSourceType": 0,
+        "header": "{\"User-Agent\": \"Mozilla/5.0\", \"Referer\": \"https://example.com/\"}",
+        "searchUrl": "{\"url\": \"/search?q={{key}}\", \"bookList\": \"<js>(function(){function _p(r){if(r==null)return null;var raw;if(typeof r==='string'){raw=r;}else if(typeof r.body==='function'){raw=r.body();}else{raw=String(r);}if(raw==null)return null;try{return JSON.parse(raw);}catch(e){}if(typeof r==='object'&&typeof r.body!=='function'){return r;}return null;}var d=_p(result);var items=(d&&d.data&&d.data.items)||[];var out=[];for(var i=0;i<items.length;i++){out.push('<div class=\\\"book-name\\\">'+items[i].name+'</div>');}return out;})()</js>\", \"name\": \".book-name@text\", \"author\": \".book-name@text\", \"bookUrl\": \".book-name@href\"}",
+        "ruleBookInfo": {
+          "name": "//h1/text()"
+        },
+        "ruleToc": {
+          "chapterList": "//ul/li",
+          "chapterName": "//a/text()",
+          "chapterUrl": "//a/@href"
+        },
+        "ruleContent": {
+          "content": "//div[@id='content']",
+          "replaceRegex": "##广告"
+        }
+      }
+    },
+    {
+      "id": "bad-empty-file-zero-bytes",
+      "purpose": "P3-10: 0 字节文件曾被 JSONL 兜底当成空书源组、exit 0 报「符合规范」——空文件被判合规有误导性(失败不可静默 pass), 现与 js_layer_check 的 exit 2 口径对齐",
+      "file_content": "",
+      "expect_exit_code": 2,
+      "expect_output_contains": [
+        "无法读取/解析 JSON",
+        "文件为空",
+        "无有效 JSON 内容"
+      ]
+    },
+    {
+      "id": "bad-whitespace-only-file",
+      "purpose": "P3-10: 纯空白文件(换行/制表符/空格)与 0 字节同口径——strip 后为空即报错, 不静默放行",
+      "file_content": "\n  \t\n   \n",
+      "expect_exit_code": 2,
+      "expect_output_contains": [
+        "文件为空"
+      ]
+    },
+    {
+      "id": "bad-broken-json-file",
+      "purpose": "P3-10: 坏 JSON( {\"broken\": )的既有 exit 2 行为不变——修空输入口径时不能顺带改动它的语义(边界防回归)",
+      "file_content": "{\"broken\":",
+      "expect_exit_code": 2,
+      "expect_output_contains": [
+        "无法读取/解析 JSON"
+      ]
+    },
+    {
+      "id": "good-empty-array-file",
+      "purpose": "P3-10: 合法但空的 JSON 数组 [] 是合法书源组(QA 2.6 记录在案的行为), 必须保持放行——修空输入口径时不能误伤它",
+      "file_content": "[]",
+      "expect_exit_code": 0,
+      "expect_error_count": 0,
+      "expect_warn_count": 0,
+      "expect_output_contains": [
+        "书源字段完整，符合规范。"
+      ]
+    },
+    {
+      "id": "good-request-layer-incident-v4-ERROR4",
+      "purpose": "E19 自犯修正: 请求层闸必须随包带事故标本——duomle v4 两处真机崩溃形态必须 ERROR=4 且 exit=1(引擎侧可原样复跑)",
+      "booksource_file": "samples/duomle_incident_v4.json",
+      "expect_exit_code": 1,
+      "expect_error_count": 4,
+      "expect_warn_count": 0,
+      "expect_output_contains": [
+        "R1 exploreUrl 声明为 JSON 数组但解析失败",
+        "method=POST 与 webView=true 互斥"
+      ],
+      "expect_attribution": "samples/duomle_incident_v4.json"
+    },
+    {
+      "id": "good-request-layer-fixed-v5-ERROR0",
+      "purpose": "阴性对照: 同站修复版必须 ERROR=0 且 exit=0 —— 证明上一条 ERROR=4 来自两处缺陷, 不是闸本身见谁咬谁",
+      "booksource_file": "samples/duomle_fixed_v5.json",
+      "expect_exit_code": 0,
+      "expect_error_count": 0,
+      "expect_warn_count": 1,
+      "expect_output_contains": [
+        "请求层通过（ERROR=0"
+      ],
+      "forbid_contains": [
+        "[ERROR]"
+      ],
+      "expect_attribution": "samples/duomle_fixed_v5.json"
+    },
+    {
+      "id": "g9_tolerance_note",
+      "purpose": "宽容度差异: {{page}} + 字符串内裸换行, Python json 报 Invalid control character 而宿主 gson 能过 → 必须 ERROR=0 且 R1 走 NOTE(不是 ERROR, 也不是静默跳过)",
+      "booksource_file": "samples/g9_bare_newline.json",
+      "expect_exit_code": 0,
+      "expect_error_count": 0,
+      "expect_output_contains": [
+        "按宿主 gson 宽容度复解通过"
+      ],
+      "expect_attribution": "samples/g9_bare_newline.json"
+    },
+    {
+      "id": "g10a_option_before_nl",
+      "purpose": "结构真错: 未转义内嵌选项在裸换行之前 → 必须 ERROR>=1 且 exit=1(放过的反例)",
+      "booksource_file": "samples/g10a_option_before_newline.json",
+      "expect_exit_code": 1,
+      "expect_error_count": 3,
+      "expect_output_contains": [
+        "Expecting ',' delimiter",
+        "疑似未转义的内嵌选项"
+      ],
+      "expect_attribution": "samples/g10a_option_before_newline.json"
+    },
+    {
+      "id": "g10b_option_after_nl",
+      "purpose": "顺序敏感短路修正(关键): 裸换行在前、未转义选项在后, v1.15.14 因 first-error 短路漏报 ERROR=0 → 必须 ERROR=1 且报文含 Expecting ',' delimiter",
+      "booksource_file": "samples/g10b_option_after_newline.json",
+      "expect_exit_code": 1,
+      "expect_error_count": 1,
+      "expect_output_contains": [
+        "Expecting ',' delimiter"
+      ],
+      "forbid_contains": [
+        "本闸跳结构校验"
+      ],
+      "expect_attribution": "samples/g10b_option_after_newline.json"
+    },
+    {
+      "id": "note_path_r5_not_swallowed",
+      "purpose": "主灵独立复核缺陷回归(关键): 裸换行(宽容度差异→NOTE) + 易失长数字段, v1.15.15 原五项让 NOTE 分支直接 return, R5 被静默吞掉(WARN=0 exit=0) → 必须 WARN>=1 且报文含 R5; v1.15.16 起归属写到 [JSON[0]]「军事」(不再是「原文抽取/条目归属未知」)",
+      "booksource_file": "samples/x5_note_path_volatile.json",
+      "strict": true,
+      "expect_exit_code": 1,
+      "expect_warn_count": 1,
+      "expect_output_contains": [
+        "[JSON[0]]「军事」",
+        "路径含长数字段 '20261102'"
+      ],
+      "expect_attribution": "samples/x5_note_path_volatile.json",
+      "expect_error_count": 0,
+      "forbid_contains": [
+        "[原文抽取]"
+      ]
+    },
+    {
+      "id": "note_path_r5_no_false_alarm",
+      "purpose": "上一条的反向对照: 同样是裸换行→NOTE, 但路径无 4+ 位长数字段 → R5 不得误报, strict 必须 exit=0(堵「见 NOTE 就一律报 R5」的过修); v1.15.16 走的是「按复解条目逐条补判」新文案",
+      "booksource_file": "samples/x1_note_path_clean.json",
+      "strict": true,
+      "expect_exit_code": 0,
+      "expect_warn_count": 0,
+      "expect_output_contains": [
+        "R5 已按复解出的 1 个条目逐条补判：无 4+ 位长数字段"
+      ],
+      "expect_attribution": "samples/x1_note_path_clean.json",
+      "forbid_contains": [
+        "[原文抽取]",
+        "路径含长数字段"
+      ]
+    },
+    {
+      "id": "a2_sweep_00_paren_l_clean",
+      "purpose": "A2 22 格之 00/(/clean: url 路径含 '(' + 1234567, 结构直接可解。与同字符 _note 格是**同一个 url**、只差尾部一个裸换行 —— 两格必须报同一段 'b(1234567'",
+      "booksource_file": "samples/sweep/sweep_0_clean.json",
+      "strict": true,
+      "expect_exit_code": 1,
+      "expect_error_count": 0,
+      "expect_warn_count": 1,
+      "expect_output_contains": [
+        "[JSON[0]]「T」",
+        "路径含长数字段 'b(1234567'"
+      ],
+      "forbid_contains": [
+        "[原文抽取]"
+      ],
+      "expect_attribution": "samples/sweep/sweep_0_clean.json"
+    },
+    {
+      "id": "a2_sweep_00_paren_l_note",
+      "purpose": "A2 22 格之 00/(/note(关键): 同字符 clean 格 + 尾部裸换行 → 走 NOTE 分支。v1.15.15 的 _r5_raw_urls 按 '(' 切碎只留 http 开头的碎片 → 本格 exit=0 漏报; v1.15.16 改 enumerate(arr) 后必须与 clean 格逐字同段 'b(1234567'",
+      "booksource_file": "samples/sweep/sweep_0_note.json",
+      "strict": true,
+      "expect_exit_code": 1,
+      "expect_error_count": 0,
+      "expect_warn_count": 1,
+      "expect_output_contains": [
+        "[JSON[0]]「T」",
+        "路径含长数字段 'b(1234567'"
+      ],
+      "forbid_contains": [
+        "[原文抽取]"
+      ],
+      "expect_attribution": "samples/sweep/sweep_0_note.json"
+    },
+    {
+      "id": "a2_sweep_01_paren_r_clean",
+      "purpose": "A2 22 格之 01/)/clean: url 路径含 ')' + 1234567, 结构直接可解。与同字符 _note 格是**同一个 url**、只差尾部一个裸换行 —— 两格必须报同一段 'b)1234567'",
+      "booksource_file": "samples/sweep/sweep_1_clean.json",
+      "strict": true,
+      "expect_exit_code": 1,
+      "expect_error_count": 0,
+      "expect_warn_count": 1,
+      "expect_output_contains": [
+        "[JSON[0]]「T」",
+        "路径含长数字段 'b)1234567'"
+      ],
+      "forbid_contains": [
+        "[原文抽取]"
+      ],
+      "expect_attribution": "samples/sweep/sweep_1_clean.json"
+    },
+    {
+      "id": "a2_sweep_01_paren_r_note",
+      "purpose": "A2 22 格之 01/)/note(关键): 同字符 clean 格 + 尾部裸换行 → 走 NOTE 分支。v1.15.15 的 _r5_raw_urls 按 ')' 切碎只留 http 开头的碎片 → 本格 exit=0 漏报; v1.15.16 改 enumerate(arr) 后必须与 clean 格逐字同段 'b)1234567'",
+      "booksource_file": "samples/sweep/sweep_1_note.json",
+      "strict": true,
+      "expect_exit_code": 1,
+      "expect_error_count": 0,
+      "expect_warn_count": 1,
+      "expect_output_contains": [
+        "[JSON[0]]「T」",
+        "路径含长数字段 'b)1234567'"
+      ],
+      "forbid_contains": [
+        "[原文抽取]"
+      ],
+      "expect_attribution": "samples/sweep/sweep_1_note.json"
+    },
+    {
+      "id": "a2_sweep_02_semicolon_clean",
+      "purpose": "A2 22 格之 02/;/clean: url 路径含 ';' + 1234567, 结构直接可解。与同字符 _note 格是**同一个 url**、只差尾部一个裸换行 —— 两格必须报同一段 'b;1234567'",
+      "booksource_file": "samples/sweep/sweep_2_clean.json",
+      "strict": true,
+      "expect_exit_code": 1,
+      "expect_error_count": 0,
+      "expect_warn_count": 1,
+      "expect_output_contains": [
+        "[JSON[0]]「T」",
+        "路径含长数字段 'b;1234567'"
+      ],
+      "forbid_contains": [
+        "[原文抽取]"
+      ],
+      "expect_attribution": "samples/sweep/sweep_2_clean.json"
+    },
+    {
+      "id": "a2_sweep_02_semicolon_note",
+      "purpose": "A2 22 格之 02/;/note(关键): 同字符 clean 格 + 尾部裸换行 → 走 NOTE 分支。v1.15.15 的 _r5_raw_urls 按 ';' 切碎只留 http 开头的碎片 → 本格 exit=0 漏报; v1.15.16 改 enumerate(arr) 后必须与 clean 格逐字同段 'b;1234567'",
+      "booksource_file": "samples/sweep/sweep_2_note.json",
+      "strict": true,
+      "expect_exit_code": 1,
+      "expect_error_count": 0,
+      "expect_warn_count": 1,
+      "expect_output_contains": [
+        "[JSON[0]]「T」",
+        "路径含长数字段 'b;1234567'"
+      ],
+      "forbid_contains": [
+        "[原文抽取]"
+      ],
+      "expect_attribution": "samples/sweep/sweep_2_note.json"
+    },
+    {
+      "id": "a2_sweep_03_bang_clean",
+      "purpose": "A2 22 格之 03/!/clean: url 路径含 '!' + 1234567, 结构直接可解。与同字符 _note 格是**同一个 url**、只差尾部一个裸换行 —— 两格必须报同一段 'b!1234567'",
+      "booksource_file": "samples/sweep/sweep_3_clean.json",
+      "strict": true,
+      "expect_exit_code": 1,
+      "expect_error_count": 0,
+      "expect_warn_count": 1,
+      "expect_output_contains": [
+        "[JSON[0]]「T」",
+        "路径含长数字段 'b!1234567'"
+      ],
+      "forbid_contains": [
+        "[原文抽取]"
+      ],
+      "expect_attribution": "samples/sweep/sweep_3_clean.json"
+    },
+    {
+      "id": "a2_sweep_03_bang_note",
+      "purpose": "A2 22 格之 03/!/note(关键): 同字符 clean 格 + 尾部裸换行 → 走 NOTE 分支。v1.15.15 的 _r5_raw_urls 按 '!' 切碎只留 http 开头的碎片 → 本格 exit=0 漏报; v1.15.16 改 enumerate(arr) 后必须与 clean 格逐字同段 'b!1234567'",
+      "booksource_file": "samples/sweep/sweep_3_note.json",
+      "strict": true,
+      "expect_exit_code": 1,
+      "expect_error_count": 0,
+      "expect_warn_count": 1,
+      "expect_output_contains": [
+        "[JSON[0]]「T」",
+        "路径含长数字段 'b!1234567'"
+      ],
+      "forbid_contains": [
+        "[原文抽取]"
+      ],
+      "expect_attribution": "samples/sweep/sweep_3_note.json"
+    },
+    {
+      "id": "a2_sweep_04_star_clean",
+      "purpose": "A2 22 格之 04/*/clean: url 路径含 '*' + 1234567, 结构直接可解。与同字符 _note 格是**同一个 url**、只差尾部一个裸换行 —— 两格必须报同一段 'b*1234567'",
+      "booksource_file": "samples/sweep/sweep_4_clean.json",
+      "strict": true,
+      "expect_exit_code": 1,
+      "expect_error_count": 0,
+      "expect_warn_count": 1,
+      "expect_output_contains": [
+        "[JSON[0]]「T」",
+        "路径含长数字段 'b*1234567'"
+      ],
+      "forbid_contains": [
+        "[原文抽取]"
+      ],
+      "expect_attribution": "samples/sweep/sweep_4_clean.json"
+    },
+    {
+      "id": "a2_sweep_04_star_note",
+      "purpose": "A2 22 格之 04/*/note(关键): 同字符 clean 格 + 尾部裸换行 → 走 NOTE 分支。v1.15.15 的 _r5_raw_urls 按 '*' 切碎只留 http 开头的碎片 → 本格 exit=0 漏报; v1.15.16 改 enumerate(arr) 后必须与 clean 格逐字同段 'b*1234567'",
+      "booksource_file": "samples/sweep/sweep_4_note.json",
+      "strict": true,
+      "expect_exit_code": 1,
+      "expect_error_count": 0,
+      "expect_warn_count": 1,
+      "expect_output_contains": [
+        "[JSON[0]]「T」",
+        "路径含长数字段 'b*1234567'"
+      ],
+      "forbid_contains": [
+        "[原文抽取]"
+      ],
+      "expect_attribution": "samples/sweep/sweep_4_note.json"
+    },
+    {
+      "id": "a2_sweep_05_dollar_clean",
+      "purpose": "A2 22 格之 05/$/clean: url 路径含 '$' + 1234567, 结构直接可解。与同字符 _note 格是**同一个 url**、只差尾部一个裸换行 —— 两格必须报同一段 'b$1234567'",
+      "booksource_file": "samples/sweep/sweep_5_clean.json",
+      "strict": true,
+      "expect_exit_code": 1,
+      "expect_error_count": 0,
+      "expect_warn_count": 1,
+      "expect_output_contains": [
+        "[JSON[0]]「T」",
+        "路径含长数字段 'b$1234567'"
+      ],
+      "forbid_contains": [
+        "[原文抽取]"
+      ],
+      "expect_attribution": "samples/sweep/sweep_5_clean.json"
+    },
+    {
+      "id": "a2_sweep_05_dollar_note",
+      "purpose": "A2 22 格之 05/$/note(关键): 同字符 clean 格 + 尾部裸换行 → 走 NOTE 分支。v1.15.15 的 _r5_raw_urls 按 '$' 切碎只留 http 开头的碎片 → 本格 exit=0 漏报; v1.15.16 改 enumerate(arr) 后必须与 clean 格逐字同段 'b$1234567'",
+      "booksource_file": "samples/sweep/sweep_5_note.json",
+      "strict": true,
+      "expect_exit_code": 1,
+      "expect_error_count": 0,
+      "expect_warn_count": 1,
+      "expect_output_contains": [
+        "[JSON[0]]「T」",
+        "路径含长数字段 'b$1234567'"
+      ],
+      "forbid_contains": [
+        "[原文抽取]"
+      ],
+      "expect_attribution": "samples/sweep/sweep_5_note.json"
+    },
+    {
+      "id": "a2_sweep_06_pipe_clean",
+      "purpose": "A2 22 格之 06/|/clean: url 路径含 '|' + 1234567, 结构直接可解。与同字符 _note 格是**同一个 url**、只差尾部一个裸换行 —— 两格必须报同一段 'b|1234567'",
+      "booksource_file": "samples/sweep/sweep_6_clean.json",
+      "strict": true,
+      "expect_exit_code": 1,
+      "expect_error_count": 0,
+      "expect_warn_count": 1,
+      "expect_output_contains": [
+        "[JSON[0]]「T」",
+        "路径含长数字段 'b|1234567'"
+      ],
+      "forbid_contains": [
+        "[原文抽取]"
+      ],
+      "expect_attribution": "samples/sweep/sweep_6_clean.json"
+    },
+    {
+      "id": "a2_sweep_06_pipe_note",
+      "purpose": "A2 22 格之 06/|/note(关键): 同字符 clean 格 + 尾部裸换行 → 走 NOTE 分支。v1.15.15 的 _r5_raw_urls 按 '|' 切碎只留 http 开头的碎片 → 本格 exit=0 漏报; v1.15.16 改 enumerate(arr) 后必须与 clean 格逐字同段 'b|1234567'",
+      "booksource_file": "samples/sweep/sweep_6_note.json",
+      "strict": true,
+      "expect_exit_code": 1,
+      "expect_error_count": 0,
+      "expect_warn_count": 1,
+      "expect_output_contains": [
+        "[JSON[0]]「T」",
+        "路径含长数字段 'b|1234567'"
+      ],
+      "forbid_contains": [
+        "[原文抽取]"
+      ],
+      "expect_attribution": "samples/sweep/sweep_6_note.json"
+    },
+    {
+      "id": "a2_sweep_07_lt_clean",
+      "purpose": "A2 22 格之 07/</clean: url 路径含 '<' + 1234567, 结构直接可解。与同字符 _note 格是**同一个 url**、只差尾部一个裸换行 —— 两格必须报同一段 'b<1234567'",
+      "booksource_file": "samples/sweep/sweep_7_clean.json",
+      "strict": true,
+      "expect_exit_code": 1,
+      "expect_error_count": 0,
+      "expect_warn_count": 1,
+      "expect_output_contains": [
+        "[JSON[0]]「T」",
+        "路径含长数字段 'b<1234567'"
+      ],
+      "forbid_contains": [
+        "[原文抽取]"
+      ],
+      "expect_attribution": "samples/sweep/sweep_7_clean.json"
+    },
+    {
+      "id": "a2_sweep_07_lt_note",
+      "purpose": "A2 22 格之 07/</note(关键): 同字符 clean 格 + 尾部裸换行 → 走 NOTE 分支。v1.15.15 的 _r5_raw_urls 按 '<' 切碎只留 http 开头的碎片 → 本格 exit=0 漏报; v1.15.16 改 enumerate(arr) 后必须与 clean 格逐字同段 'b<1234567'",
+      "booksource_file": "samples/sweep/sweep_7_note.json",
+      "strict": true,
+      "expect_exit_code": 1,
+      "expect_error_count": 0,
+      "expect_warn_count": 1,
+      "expect_output_contains": [
+        "[JSON[0]]「T」",
+        "路径含长数字段 'b<1234567'"
+      ],
+      "forbid_contains": [
+        "[原文抽取]"
+      ],
+      "expect_attribution": "samples/sweep/sweep_7_note.json"
+    },
+    {
+      "id": "a2_sweep_08_gt_clean",
+      "purpose": "A2 22 格之 08/>/clean: url 路径含 '>' + 1234567, 结构直接可解。与同字符 _note 格是**同一个 url**、只差尾部一个裸换行 —— 两格必须报同一段 'b>1234567'",
+      "booksource_file": "samples/sweep/sweep_8_clean.json",
+      "strict": true,
+      "expect_exit_code": 1,
+      "expect_error_count": 0,
+      "expect_warn_count": 1,
+      "expect_output_contains": [
+        "[JSON[0]]「T」",
+        "路径含长数字段 'b>1234567'"
+      ],
+      "forbid_contains": [
+        "[原文抽取]"
+      ],
+      "expect_attribution": "samples/sweep/sweep_8_clean.json"
+    },
+    {
+      "id": "a2_sweep_08_gt_note",
+      "purpose": "A2 22 格之 08/>/note(关键): 同字符 clean 格 + 尾部裸换行 → 走 NOTE 分支。v1.15.15 的 _r5_raw_urls 按 '>' 切碎只留 http 开头的碎片 → 本格 exit=0 漏报; v1.15.16 改 enumerate(arr) 后必须与 clean 格逐字同段 'b>1234567'",
+      "booksource_file": "samples/sweep/sweep_8_note.json",
+      "strict": true,
+      "expect_exit_code": 1,
+      "expect_error_count": 0,
+      "expect_warn_count": 1,
+      "expect_output_contains": [
+        "[JSON[0]]「T」",
+        "路径含长数字段 'b>1234567'"
+      ],
+      "forbid_contains": [
+        "[原文抽取]"
+      ],
+      "expect_attribution": "samples/sweep/sweep_8_note.json"
+    },
+    {
+      "id": "a2_sweep_09_bracket_l_clean",
+      "purpose": "A2 22 格之 09/[/clean: url 路径含 '[' + 1234567, 结构直接可解。与同字符 _note 格是**同一个 url**、只差尾部一个裸换行 —— 两格必须报同一段 'b[1234567'",
+      "booksource_file": "samples/sweep/sweep_9_clean.json",
+      "strict": true,
+      "expect_exit_code": 1,
+      "expect_error_count": 0,
+      "expect_warn_count": 1,
+      "expect_output_contains": [
+        "[JSON[0]]「T」",
+        "路径含长数字段 'b[1234567'"
+      ],
+      "forbid_contains": [
+        "[原文抽取]"
+      ],
+      "expect_attribution": "samples/sweep/sweep_9_clean.json"
+    },
+    {
+      "id": "a2_sweep_09_bracket_l_note",
+      "purpose": "A2 22 格之 09/[/note(关键): 同字符 clean 格 + 尾部裸换行 → 走 NOTE 分支。v1.15.15 的 _r5_raw_urls 按 '[' 切碎只留 http 开头的碎片 → 本格 exit=0 漏报; v1.15.16 改 enumerate(arr) 后必须与 clean 格逐字同段 'b[1234567'",
+      "booksource_file": "samples/sweep/sweep_9_note.json",
+      "strict": true,
+      "expect_exit_code": 1,
+      "expect_error_count": 0,
+      "expect_warn_count": 1,
+      "expect_output_contains": [
+        "[JSON[0]]「T」",
+        "路径含长数字段 'b[1234567'"
+      ],
+      "forbid_contains": [
+        "[原文抽取]"
+      ],
+      "expect_attribution": "samples/sweep/sweep_9_note.json"
+    },
+    {
+      "id": "a2_sweep_10_bracket_r_clean",
+      "purpose": "A2 22 格之 10/]/clean: url 路径含 ']' + 1234567, 结构直接可解。与同字符 _note 格是**同一个 url**、只差尾部一个裸换行 —— 两格必须报同一段 'b]1234567'",
+      "booksource_file": "samples/sweep/sweep_10_clean.json",
+      "strict": true,
+      "expect_exit_code": 1,
+      "expect_error_count": 0,
+      "expect_warn_count": 1,
+      "expect_output_contains": [
+        "[JSON[0]]「T」",
+        "路径含长数字段 'b]1234567'"
+      ],
+      "forbid_contains": [
+        "[原文抽取]"
+      ],
+      "expect_attribution": "samples/sweep/sweep_10_clean.json"
+    },
+    {
+      "id": "a2_sweep_10_bracket_r_note",
+      "purpose": "A2 22 格之 10/]/note(关键): 同字符 clean 格 + 尾部裸换行 → 走 NOTE 分支。v1.15.15 的 _r5_raw_urls 按 ']' 切碎只留 http 开头的碎片 → 本格 exit=0 漏报; v1.15.16 改 enumerate(arr) 后必须与 clean 格逐字同段 'b]1234567'",
+      "booksource_file": "samples/sweep/sweep_10_note.json",
+      "strict": true,
+      "expect_exit_code": 1,
+      "expect_error_count": 0,
+      "expect_warn_count": 1,
+      "expect_output_contains": [
+        "[JSON[0]]「T」",
+        "路径含长数字段 'b]1234567'"
+      ],
+      "forbid_contains": [
+        "[原文抽取]"
+      ],
+      "expect_attribution": "samples/sweep/sweep_10_note.json"
+    },
+    {
+      "id": "a3_b10a_semicolon_clean",
+      "purpose": "A3 口径变化登记(不是修复): url=https://a.com/x?d=1;3333333{{page}}, 长数字在**查询串**。v1.15.15 判 'x?d=1;3333333' 阻断; v1.15.16 只看 path → WARN=0。与 b10b 同口径, 两形态从此一致",
+      "booksource_file": "samples/b10a_semicolon_clean.json",
+      "strict": true,
+      "expect_exit_code": 0,
+      "expect_error_count": 0,
+      "expect_warn_count": 0,
+      "expect_output_contains": [
+        "exploreUrl 格式=JSON数组，共 1 项",
+        "请求层通过（ERROR=0）"
+      ],
+      "forbid_contains": [
+        "路径含长数字段",
+        "[WARN"
+      ],
+      "expect_attribution": "samples/b10a_semicolon_clean.json"
+    },
+    {
+      "id": "a3_b10b_semicolon_newline",
+      "purpose": "A3 口径变化登记: 与 b10a 同一个 url, 只差尾部裸换行 → 走 NOTE 分支。旧版 exit=0 是**漏报**(; 把 3333333 切掉), 新版 exit=0 是**口径**(长数字在查询串, 按 split('?')[0] 不报) —— 同结果、不同理由, 不许混记成「已修」",
+      "booksource_file": "samples/b10b_semicolon_newline.json",
+      "strict": true,
+      "expect_exit_code": 0,
+      "expect_error_count": 0,
+      "expect_warn_count": 0,
+      "expect_output_contains": [
+        "按宿主 gson 宽容度复解通过",
+        "无 4+ 位长数字段"
+      ],
+      "forbid_contains": [
+        "路径含长数字段"
+      ],
+      "expect_attribution": "samples/b10b_semicolon_newline.json"
+    },
+    {
+      "id": "a3_c4_query_digits",
+      "purpose": "A3 口径变化登记: /list?cid=1234&page={{page}} 的长数字在查询串 → v1.15.15 阻断(seg='list?cid=1234&page='), v1.15.16 通过。查询串带长数字属**已知放宽边界**, 见 maintenance.md 登记",
+      "booksource_file": "samples/c4_query_digits.json",
+      "strict": true,
+      "expect_exit_code": 0,
+      "expect_error_count": 0,
+      "expect_warn_count": 0,
+      "expect_output_contains": [
+        "exploreUrl 格式=JSON数组，共 1 项",
+        "请求层通过（ERROR=0）"
+      ],
+      "forbid_contains": [
+        "路径含长数字段",
+        "[WARN"
+      ],
+      "expect_attribution": "samples/c4_query_digits.json"
+    },
+    {
+      "id": "a5_attribution_url_volatile_nl",
+      "purpose": "A5 归属正确(关键正例): title 干净、**url 带长数字**且带裸换行 → 必须仍报, 且归属写成 [JSON[0]]「玄幻」。这条防「改成逐条判之后把该报的也判没了」——D3b(WARN=0)只能证明不误报, 不能单独证明还报",
+      "booksource_file": "samples/d3_url_volatile_newline.json",
+      "strict": true,
+      "expect_exit_code": 1,
+      "expect_error_count": 0,
+      "expect_warn_count": 1,
+      "expect_output_contains": [
+        "[JSON[0]]「玄幻」",
+        "路径含长数字段 '20261102'"
+      ],
+      "forbid_contains": [
+        "[原文抽取]"
+      ],
+      "expect_attribution": "samples/d3_url_volatile_newline.json"
+    },
+    {
+      "id": "a5_title_url_is_not_url",
+      "purpose": "A5 归属正确(反向对照): title 里含假 URL(https://a.com/20260101/)、url 干净 → title 不是 URL, 不得判 R5。v1.15.15 报 exit=1(归属错), v1.15.16 WARN=0 exit=0。**这是从误报变不报, 不是「归属修好了」**",
+      "booksource_file": "samples/d3b_title_url_newline.json",
+      "strict": true,
+      "expect_exit_code": 0,
+      "expect_error_count": 0,
+      "expect_warn_count": 0,
+      "expect_output_contains": [
+        "无 4+ 位长数字段"
+      ],
+      "forbid_contains": [
+        "20260101",
+        "[原文抽取]"
+      ],
+      "expect_attribution": "samples/d3b_title_url_newline.json"
+    },
+    {
+      "id": "a3_relative_path_query",
+      "purpose": "A3 相对路径反例(任务书原例): exploreUrl 写相对路径 '/list/2026/?cid=5' —— R5 判的是「原串 path 里有没有 4+ 位数字」，不因相对/绝对而变，必须报 '2026' 且阻断 exit=1。这条同时钉住「不许把判据换成 urlsplit().path」：普通相对路径两者等价，换成 urlsplit 后只有 // 开头的协议相对路径才漏，别把等价当成「urlsplit 拿不到 path」(M2 实测不成立)",
+      "booksource_file": "samples/a3_relative_path_query.json",
+      "strict": true,
+      "expect_exit_code": 1,
+      "expect_error_count": 0,
+      "expect_warn_count": 2,
+      "expect_output_contains": [
+        "[JSON[0]]「玄幻」",
+        "路径含长数字段 '2026'",
+        "为相对路径，宿主以 bookSourceUrl"
+      ],
+      "expect_attribution": "samples/a3_relative_path_query.json"
+    },
+    {
+      "id": "a5_multi_item_mixed",
+      "purpose": "A5 归属·多条目混合: 第 0 项干净、第 1 项路径易失且带裸换行 → 必须只报 [JSON[1]]「武」且段 '20261102'，不得报到第 0 项头上、也不得因为「有干净项」而整体沉默（旧原文抽取在这格会连条目都对不上）",
+      "booksource_file": "samples/a5_multi_item_mixed.json",
+      "strict": true,
+      "expect_exit_code": 1,
+      "expect_error_count": 0,
+      "expect_warn_count": 1,
+      "expect_output_contains": [
+        "[JSON[1]]「武」",
+        "路径含长数字段 '20261102'",
+        "按复解出的 2 个条目逐条补判：命中 1 段"
+      ],
+      "forbid_contains": [
+        "[JSON[0]]",
+        "[原文抽取]"
+      ],
+      "expect_attribution": "samples/a5_multi_item_mixed.json"
+    }
+  ]
+}

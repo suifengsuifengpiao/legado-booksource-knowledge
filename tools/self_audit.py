@@ -324,12 +324,12 @@ def check_hardcoded(errors, notices=None):
 #     (`help/http/e.java`、`BookContent.kt`、`service/WebService.java`)、CHANGELOG 里的
 #     `v1.13.xx.skill` 历史叙述、外部工具 `rhino-1.7.14.jar`、Legado 调试语法 `--https://…html`。
 #   噪音会被习惯性忽略, 被忽略的护栏比没有护栏更糟(虚假安全感)。故只保留**零误报**的那一种形状:
-#   **只查带技能内目录前缀的引用**(`references/ scripts/ evals/ samples/`)。
+#   **只查带技能内目录前缀的引用**(`references/ scripts/ evals/ samples/ fixtures/`).
 #
 # 由此立下约定: 引用证据一律写**技能内路径**(如 `references/evidence/AnalyzeByJSoup.kt`),
 # 不要只写裸文件名 —— 裸名既无法区分"APK 内部类"还是"本技能证据", 也逃过本检查。
 EVID_RE = re.compile(
-    r"`((?:references|scripts|evals|samples)/[^`\s]+?"
+    r"`((?:references|scripts|evals|samples|fixtures)/[^`\s]+?"
     r"\.(?:kt|java|jar|dex|apk|skill|html|png|json|py))`")
 
 

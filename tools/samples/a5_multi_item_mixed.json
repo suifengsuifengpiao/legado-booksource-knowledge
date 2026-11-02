@@ -1,0 +1,7 @@
+[
+ {
+  "bookSourceName": "多条目混合",
+  "bookSourceUrl": "https://a.com",
+  "exploreUrl": "[\n{\"title\":\"玄幻\",\"url\":\"https://a.com/xh/{{page}}\"},\n{\"title\":\"武\",\"url\":\"https://a.com/js/20261102/{{page}}\n\"}]"
+ }
+]
