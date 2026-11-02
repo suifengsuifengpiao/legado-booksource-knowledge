@@ -25,6 +25,9 @@ self_audit.py —— 技能自身的一致性自检（改完技能必跑）。
        官方 validate 的白名单为基准), 必须在 `references/maintenance.md`「已登记的 schema 约定」
        登记 —— 防"私扩 schema 不报错就成了暗病"这类事(官方工具链的 backup/package/install
        全以 validate 通过为门禁, 白名单外类型会把整条交付链挡死)。
+    6. 新闸检查项登记(1.15.12 新增): scripts/check_request_layer.py 代码里实际 emit 的
+       R 编号(res.err/warn/note), 必须在该文件头部「检查项」注释里声明 —— 引擎侧 v1.15.11
+       往返中 R2/R6 被误解, 根因是"编号在代码里存在、用途说明却查无登记"。防同类静默。
 
 用法:
     python3 scripts/self_audit.py            # 全量自检; 有 ERROR 则 exit 1
@@ -327,7 +330,31 @@ def check_hardcoded(errors, notices=None):
 # 不要只写裸文件名 —— 裸名既无法区分"APK 内部类"还是"本技能证据", 也逃过本检查。
 EVID_RE = re.compile(
     r"`((?:references|scripts|evals|samples)/[^`\s]+?"
-    r"\.(?:kt|java|jar|dex|apk|skill|html|png|json))`")
+    r"\.(?:kt|java|jar|dex|apk|skill|html|png|json|py))`")
+
+
+# ---------------------------------------------------------------- 6) 新闸检查项登记
+# 1.15.12 新增。由来：引擎侧 v1.15.11 往返中把新闸的 R2/R6 当成别的编号来信问 —— 编号在代码里
+# 真实存在，但「编号 → 用途」的登记只散落在实现里，没有任何机械检查保证头注释与 emit 面一致。
+# 本检查只做零误报的那一半：**代码里 emit 的每个 R 编号必须在头注释「检查项」里声明**；
+# 反方向（声明了却没 emit）不报 —— 预留编号是合法写法，报了是噪音（沿用「宁可少抓不可乱叫」）。
+NEW_GATE = os.path.join(SKILL_DIR, "scripts", "check_request_layer.py")
+GATE_DECL_RE = re.compile(r"^\s{2}(R\d)\s", re.M)          # 头注释「检查项」条目：两空格缩进 + R编号
+GATE_EMIT_RE = re.compile(r"\.(?:err|warn|note)\(\"(R\d)\"")
+
+
+def check_gate_registry(errors):
+    if not os.path.isfile(NEW_GATE):
+        errors.append("[检查项登记] scripts/check_request_layer.py 缺失 → 新闸检查项登记失去数据源")
+        return
+    src = _read(NEW_GATE)
+    head = src.split('"""', 2)[1] if src.count('"""') >= 2 else ""
+    declared = set(GATE_DECL_RE.findall(head))
+    emitted = set(GATE_EMIT_RE.findall(src))
+    for code in sorted(emitted - declared):
+        errors.append(
+            "[检查项登记] check_request_layer.py 实际产出 %s 但未在头部「检查项」注释声明 "
+            "→ 编号有行为、查无登记，读者/引擎侧无法从代码自解释其用途" % code)
 
 
 def check_evidence_files(errors):
@@ -467,6 +494,13 @@ def _sandbox_files(dirty, broken_meta=False, odd_display=False, date_first=False
         "skill-dependencies.json": deps_dirty if dirty else deps_clean,
         "scripts/demo.py": demo,
         "references/evidence/real.kt": "// 占位\n",
+        # 6) 新闸登记(1.15.12)：沙盒与真实结构双向同步 —— 真实技能有 check_request_layer.py，
+        #    沙盒缺了它会让新检查走"缺失报错"分支、正例反而炸；脏树注入一个 emit 了未声明 R9 的
+        #    副本，干净树则 R1/R2 声明与 emit 两两对齐。
+        "scripts/check_request_layer.py": (
+            '"""请求层闸\n\n检查项：\n  R1 exploreUrl 语法\n  R2 文本行格式\n"""\n'
+            'def run(res):\n    res.err("R1", "x")\n    res.err("R2", "y")'
+            + ('\n    res.err("R9", "z")' if dirty else "") + "\n"),
         # 三态互斥, 顺序即优先级:
         #   broken_meta —— 文件**在**但内容是非法 JSON（v1.15.4 补的反例）
         #     dirty 是"值不一致"(会报错), broken 是"不可解析"(旧实现在此吞异常 →
@@ -504,6 +538,7 @@ _DIRTY_MARKERS = [
     ("版本漂移", "版本漂移"),
     ("证据随包", "证据文件未随包"),
     ("schema 登记", "未在 maintenance.md"),
+    ("检查项登记", "未在头部「检查项」注释声明"),
 ]
 
 
@@ -687,13 +722,14 @@ def main():
     check_hardcoded(errors, notices)
     check_evidence_files(errors)
     check_dependency_schema(errors)
+    check_gate_registry(errors)
     print("=" * 62)
-    print("技能自身一致性自检 (悬空引用 / CLI 参数 / 写死计数·版本 / 证据文件随包 / schema 登记)")
+    print("技能自身一致性自检 (悬空引用 / CLI 参数 / 写死计数·版本 / 证据文件随包 / schema 登记 / 检查项登记)")
     print("=" * 62)
     for n in notices:
         print("[NOTE] %s" % n)
     if not errors:
-        print("[OK] 五项检查全部通过")
+        print("[OK] 六项检查全部通过")
         return 0
     for e in errors:
         print("[ERROR] %s" % e)
