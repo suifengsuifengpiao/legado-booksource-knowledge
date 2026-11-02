@@ -1,0 +1,60 @@
+[
+  {
+    "bookSourceName": "修复样本·duomle v5（ERROR=0 对照）",
+    "bookSourceUrl": "http://www.duomle.com",
+    "bookSourceType": 0,
+    "enabled": true,
+    "enabledExplore": true,
+    "enabledCookieJar": true,
+    "header": "{\"User-Agent\":\"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36\",\"Referer\":\"http://www.duomle.com/\"}",
+    "loginCheckJs": "var b=result.body();if(b&&b.indexOf('window.location.href')>-1&&b.indexOf('bookbox')<0){result=java.connect(result.url());}result;",
+    "searchUrl": "http://www.duomle.com/soso01670.html?searchkey={{key}},{\"webView\":true,\"webWait\":3000,\"charset\":\"utf-8\"}",
+    "exploreUrl": "玄幻::http://www.duomle.com/class/xuanhuan/{{page}}/,{\"charset\":\"utf-8\"}\n武侠::http://www.duomle.com/class/wuxia/{{page}}/,{\"charset\":\"utf-8\"}\n都市::http://www.duomle.com/class/dushi/{{page}}/,{\"charset\":\"utf-8\"}\n历史::http://www.duomle.com/class/lishi/{{page}}/,{\"charset\":\"utf-8\"}\n科幻::http://www.duomle.com/class/kehuan/{{page}}/,{\"charset\":\"utf-8\"}\n游戏::http://www.duomle.com/class/youxi/{{page}}/,{\"charset\":\"utf-8\"}\n女生::http://www.duomle.com/class/nvsheng/{{page}}/,{\"charset\":\"utf-8\"}\n其他::http://www.duomle.com/class/qita/{{page}}/,{\"charset\":\"utf-8\"}",
+    "ruleSearch": {
+      "bookList": "div.category-commend div.category-div",
+      "name": "h3@text",
+      "author": "div.commend-title span@text",
+      "bookUrl": "div.commend-title a@href",
+      "intro": "div.intro@text##^简介[:：]\\s*##",
+      "coverUrl": "img@data-original"
+    },
+    "ruleExplore": {
+      "bookList": "div.category-commend div.category-div",
+      "name": "h3@text",
+      "author": "div.commend-title span@text",
+      "bookUrl": "div.commend-title a@href",
+      "intro": "div.intro@text",
+      "coverUrl": "img@data-original"
+    },
+    "ruleBookInfo": {
+      "name": "meta[property=og:novel:book_name]@content",
+      "author": "meta[property=og:novel:author]@content",
+      "kind": "meta[property=og:novel:category]@content",
+      "coverUrl": "meta[property=og:image]@content",
+      "lastChapter": "meta[property=og:novel:lastest_chapter_name]@content",
+      "intro": "meta[property=og:description]@content",
+      "status": "meta[property=og:novel:status]@content"
+    },
+    "ruleToc": {
+      "chapterList": "div.info-chapters-title:contains(正文) + div.info-chapters a",
+      "chapterName": "text",
+      "chapterUrl": "href"
+    },
+    "ruleContent": {
+      "content": "article#article p@text",
+      "nextContentUrl": "a:contains(下一页)@href##^(?!.*_\\d+\\.html).*$##",
+      "replaceRegex": "##最近转码严重[^\\n]*##"
+    },
+    "_sample": {
+      "site": "duomle.com（E小说）",
+      "version": "第 5 版（v5）",
+      "date": "2026-11-02",
+      "purpose": "请求层闸的阴性对照：与 duomle_incident_v4.json 同一站点、同一套规则，仅两处请求层缺陷已修，复跑必须 ERROR=0",
+      "fix_1_R1": "exploreUrl 由「JSON 数组内嵌未转义选项」改为文本行格式 标题::URL,{...}（修法二，更稳）",
+      "fix_2_R4": "searchUrl 去掉 method:POST 与 body，改回 GET + webView:true（保留 webView：真机已证搜索页需 JS 渲染）",
+      "expected": "check_request_layer.py samples/duomle_fixed_v5.json → ERROR=0, exit=0",
+      "note_R6": "本样本会出 1 条 R6 WARN（GET URL 含 {{key}} 未显式 encodeURI）——WARN 非「不通过」，真机实测中文搜索正常；故 --strict 口径下它会 FAIL，这是有意保留的对照，不是回归失败",
+      "desensitized": "直接取自脱敏后的 /workspace/duomle.json（站内公开页面结构，无个人隐私字段）"
+    }
+  }
+]

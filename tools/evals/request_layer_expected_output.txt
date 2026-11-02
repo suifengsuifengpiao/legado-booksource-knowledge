@@ -1,0 +1,65 @@
+# 请求层闸 · 验收证据全文（v1.15.14）
+#
+# 为什么有这份文件：v1.15.11 对外写「对旧版实测 ERROR=4」，但 samples/ 里没有那份「旧版」，
+# 接收方无从复算 —— 这正是 E19「N/N 必须答得出在哪站的哪一页数的」被自己新闸违反的那一次。
+# 现在把三份标本的真实输出全文落盘，`evals/run_evals.py` 每次回归都按下面的 `# gen:` 命令行
+# 重跑一遍并逐字比对，闸的行为一旦漂移，回归立刻变红。
+#
+# v1.15.14 变更：WARN 分「阻断 / 提示」两级（R6 中文编码降为提示，不再让真机已验证的修复版
+# 在 --strict 下被判失败）；R5 先剥行内选项再判路径（此前 {"webWait":3000} 的 3000 被误当易失数字）。
+# 输出格式随之变化，故本文件按新格式整份重算——证据必须由命令生成，不许手改。
+#
+# 怎么自己复算（在技能根目录下）：
+#   python3 scripts/check_request_layer.py samples/duomle_incident_v4.json   # 期望 ERROR=4 exit=1
+#   python3 scripts/check_request_layer.py samples/duomle_fixed_v5.json --strict  # 期望 exit=0（仅提示级 WARN）
+#   python3 scripts/check_request_layer.py /tmp/t_A.json --strict             # 期望 exit=0（提示级 WARN 不阻断）
+#
+# gen: python3 scripts/check_request_layer.py samples/duomle_incident_v4.json;; python3 scripts/check_request_layer.py samples/duomle_fixed_v5.json --strict;; python3 scripts/check_request_layer.py /tmp/t_A.json --strict
+
+<!-- ACTUAL -->
+$ python3 scripts/check_request_layer.py samples/duomle_incident_v4.json
+
+[36m================================================================[0m
+[36m请求层闸 · 事故样本·duomle v4（勿导入·仅作闸门回归标本）[0m
+[36m================================================================[0m
+[31m[ERROR][0m R1 exploreUrl 声明为 JSON 数组但解析失败，约第 73 列：Expecting ',' delimiter: line 1 column 73 (char 72)
+[31m[ERROR][0m R1 疑似未转义的内嵌选项（此处双引号提前闭合字符串）：…[{"title":"玄幻","url":"https://www.duomle.com/class/xuanhuan/{{page}}/,{"webView":true,"webWait":3000}"},{"title"…
+[31m[ERROR][0m R1 修法一：内层引号转义为 \" ；修法二（更稳）：改用文本行格式 标题::URL,{"webView":true}
+[31m[ERROR][0m R4 method=POST 与 webView=true 互斥：Android WebView 只能 GET，POST body 会丢失，服务端收不到关键词（duomle 真机事故根因）
+[32m[NOTE ][0m R4 searchUrl method=POST, webView=True
+
+小计：ERROR=4  WARN=0（阻断 0 / 提示 0）  NOTE=1
+
+================================================================
+[31m结论：请求层不通过，ERROR=4——这些错误 validate / test_parse 都查不出来，必须修完再交付。[0m
+[exit=1]
+$ python3 scripts/check_request_layer.py samples/duomle_fixed_v5.json --strict
+
+[36m================================================================[0m
+[36m请求层闸 · 修复样本·duomle v5（ERROR=0 对照）[0m
+[36m================================================================[0m
+[33m[WARN·提示][0m R6 GET URL 含 {{key}}：若宿主未自动编码，中文关键词可能未编码；建议 {{java.encodeURI(key)}} 或实测确认
+[32m[NOTE ][0m R1 exploreUrl 格式=文本行，共 8 项
+[32m[NOTE ][0m R4 searchUrl method=GET, webView=True
+
+小计：ERROR=0  WARN=1（阻断 0 / 提示 1）  NOTE=2
+
+================================================================
+[33m提示：有 1 条提示级 WARN（不阻断 --strict）——建议实测确认，但不影响交付判定。[0m
+[32m结论：请求层通过（ERROR=0）。注意：本闸只验「宿主能否解析并发出请求」，不验站点是否真返回预期内容，后者仍需真实页/真机证据。[0m
+[exit=0]
+$ python3 scripts/check_request_layer.py /tmp/t_A.json --strict
+
+[36m================================================================[0m
+[36m请求层闸 · A[0m
+[36m================================================================[0m
+[33m[WARN·提示][0m R6 GET URL 含 {{key}}：若宿主未自动编码，中文关键词可能未编码；建议 {{java.encodeURI(key)}} 或实测确认
+[32m[NOTE ][0m R1 exploreUrl 为空，跳过发现页检查
+[32m[NOTE ][0m R4 searchUrl method=GET, webView=False
+
+小计：ERROR=0  WARN=1（阻断 0 / 提示 1）  NOTE=2
+
+================================================================
+[33m提示：有 1 条提示级 WARN（不阻断 --strict）——建议实测确认，但不影响交付判定。[0m
+[32m结论：请求层通过（ERROR=0）。注意：本闸只验「宿主能否解析并发出请求」，不验站点是否真返回预期内容，后者仍需真实页/真机证据。[0m
+[exit=0]

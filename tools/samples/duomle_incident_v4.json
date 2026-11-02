@@ -1,0 +1,42 @@
+[
+  {
+    "bookSourceName": "事故样本·duomle v4（勿导入·仅作闸门回归标本）",
+    "bookSourceUrl": "https://www.duomle.com",
+    "bookSourceType": 0,
+    "enabled": false,
+    "enabledExplore": true,
+    "enabledCookieJar": true,
+    "searchUrl": "https://www.duomle.com/soso01670.html,{\"method\":\"POST\",\"body\":\"searchkey={{key}}&Submit=\",\"webView\":true,\"webWait\":3000,\"charset\":\"utf-8\"}",
+    "exploreUrl": "[{\"title\":\"玄幻\",\"url\":\"https://www.duomle.com/class/xuanhuan/{{page}}/,{\"webView\":true,\"webWait\":3000}\"},{\"title\":\"武侠\",\"url\":\"https://www.duomle.com/class/wuxia/{{page}}/,{\"webView\":true,\"webWait\":3000}\"},{\"title\":\"都市\",\"url\":\"https://www.duomle.com/class/dushi/{{page}}/,{\"webView\":true,\"webWait\":3000}\"},{\"title\":\"历史\",\"url\":\"https://www.duomle.com/class/lishi/{{page}}/,{\"webView\":true,\"webWait\":3000}\"}]",
+    "ruleSearch": {
+      "bookList": "ul.ser-ret li",
+      "name": "h3 a.c_strong",
+      "author": "em span:eq(1)",
+      "bookUrl": "h3 a.c_strong@href,{\"webView\":true,\"webWait\":3000}",
+      "kind": "em span:eq(0)",
+      "intro": "p.g_ells",
+      "coverUrl": "a.g_thumb img@src",
+      "lastChapter": "p a"
+    },
+    "ruleToc": {
+      "chapterList": "ol#chapterList li",
+      "chapterName": "a span@text",
+      "chapterUrl": "a@href"
+    },
+    "ruleContent": {
+      "content": "div#TextContent@all"
+    },
+    "_incident": {
+      "site": "duomle.com（E小说）",
+      "version": "第 4 版（v4）",
+      "date": "2026-11-02",
+      "purpose": "请求层闸的验收夹具：保留两处真机崩溃形态，供任何人原样复跑 ERROR=4",
+      "defect_1_R1": "exploreUrl 声明为 JSON 数组，却把 ,{\"webView\":true,...} 未转义塞进 url 字符串 → 宿主 gson 抛 MalformedJsonException: Unterminated object at line 1 column 74 path $[0].url → 发现页整段崩",
+      "defect_2_R4": "searchUrl 同时写 method:POST 与 webView:true → Android WebView 只能 GET，POST body 丢失 → 服务端收不到关键词 → 真机「获取书籍列表 → 列表为空，按详情页解析」→ 0 本",
+      "not_in_scope": "ruleSearch/ruleToc/ruleContent 的选择器仍按 00小说网 夹具误写（ol#chapterList 在 duomle 不存在，真机 TocEmptyException）；该缺陷属解析层、由 test_parse 夹具指纹校验负责，本闸不判、本条也不作为 R 编号证据",
+      "expected": "check_request_layer.py samples/duomle_incident_v4.json → ERROR=4, exit=1",
+      "fixed_counterpart": "samples/duomle_fixed_v5.json → ERROR=0, exit=0",
+      "desensitized": "已去掉 header/loginCheckJs 等与两处缺陷无关的字段；站名非人名书评，无隐私内容"
+    }
+  }
+]
