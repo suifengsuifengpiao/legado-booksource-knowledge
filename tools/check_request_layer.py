@@ -3,6 +3,7 @@
 """
 请求层闸（第五道闸）· check_request_layer.py
 =============================================
+当前版本：v1.15.20
 用途：在把书源交给宿主（Legado）之前，模拟宿主对 **URL / 请求参数** 的解析，
       抓出「解析层四道闸永远看不到」的错误。
 
@@ -111,6 +112,9 @@ def split_options(raw, host="?"):
     if not opt_part.startswith("{"):
         return url_part, None, None
     try:
+        # M1：选项段先过 _gson_lenient，与 R1/R2 的宽容度口径一致
+        # （单引号键/值、无引号键、尾逗号等 gson 能吃的形态不再误判 R4 ERROR）
+        opt_part = _gson_lenient(opt_part)
         opt = json.JSONDecoder().raw_decode(opt_part)[0]
         if not isinstance(opt, dict):
             return url_part, None, f"选项不是 JSON 对象：{opt_part[:80]}"
@@ -260,7 +264,12 @@ def _r5_volatile(url):
          已被占位成 `__JS__`，只 replace("{{page}}", "") 会失效——本闸不建模「占位符展开后
          会不会引入 4+ 位数字」，因为那取决于宿主运行时，静态判不了；照实剔除。
     """
-    u = re.sub(r"\s*,\s*\{.*$", "", url, flags=re.S)
+    # 先剥锚点（# 之后不是路径，误判会拦合格书源）
+    u = url.split("#", 1)[0]
+    # 再剥行内选项 ,{...}（宿主 explore 口径不解析，且显然不是路径段）
+    u = re.sub(r"\s*,\s*\{.*$", "", u, flags=re.S)
+    # 再剥 scheme + host：https?://host 里的数字不是路径（book2024.example.com 不应被误报）
+    u = re.sub(r"^[a-zA-Z][a-zA-Z0-9+.\-]*://[^/?#]+", "", u, count=1)
     path = u.split("?", 1)[0]
     path = path.replace("{{page}}", "").replace("__JS__", "")
     return [seg for seg in re.findall(r"[^/]*\d{4,}[^/]*", path) if re.search(r"\d{4,}", seg)]
@@ -297,6 +306,9 @@ def _r5_collect(arr):
 def check_explore(explore, res, base=""):
     if not explore:
         res.note("R1", "exploreUrl 为空，跳过发现页检查")
+        return
+    if not isinstance(explore, str):
+        res.err("R1", f"exploreUrl 类型异常（应为字符串，实得 {type(explore).__name__}）：无法逐行解析，须改为字符串")
         return
 
     # @js: / <js> 开头 = JS 动态发现，宿主先 evalJS 再用返回值；本闸不解析 JS，
@@ -429,15 +441,21 @@ def check_explore(explore, res, base=""):
                 continue
             items.append((it["title"], str(it["url"]), f"JSON[{i}]"))
     else:
+        # 文档口径（references/booksource-schema.md）：exploreUrl 文本行支持「换行 / &&」分隔多行 URL。
+        # 故每行再按 && 拆成多个独立分类项，逐项判 R2/R5，避免 `A::url1&&B::url2` 被并成 1 项、长数字归属错（H1）。
         for ln, line in enumerate(explore.splitlines(), 1):
             line = line.strip()
             if not line:
                 continue
-            if "::" not in line:
-                res.err("R2", f"第 {ln} 行缺 '标题::URL' 分隔符：{line[:80]}")
-                continue
-            title, url = line.split("::", 1)
-            items.append((title.strip(), url.strip(), f"行{ln}"))
+            for sub in line.split("&&"):
+                sub = sub.strip()
+                if not sub:
+                    continue
+                if "::" not in sub:
+                    res.err("R2", f"第 {ln} 行缺 '标题::URL' 分隔符：{sub[:80]}")
+                    continue
+                title, url = sub.split("::", 1)
+                items.append((title.strip(), url.strip(), f"行{ln}"))
 
     if not items:
         res.err("R1", "exploreUrl 未解析出任何分类项")
@@ -474,7 +492,15 @@ def check_search(search, res, base=""):
     if not search:
         res.note("R4", "searchUrl 为空，跳过搜索检查")
         return
-    url, opt, oerr = split_options(search)
+    if not isinstance(search, str):
+        res.err("R4", f"searchUrl 类型异常（应为字符串，实得 {type(search).__name__}）：无法解析，须改为字符串")
+        return
+    # @js: / <js> 包裹：宿主先 evalJS 再用返回值，原始 JS 不进 AnalyzeUrl 的 ,{选项} 切分路径；
+    # 若调 split_options 会把 JS 代码体内的 `,{`（如函数解构参数）误当行内选项切出 → R4 误报（H6）。
+    if re.match(r"^\s*(@js:|<js>)", search):
+        url, opt, oerr = search, None, None
+    else:
+        url, opt, oerr = split_options(search)
     if oerr:
         res.err("R4", f"searchUrl 选项 JSON 非法：{oerr}")
         return
@@ -519,7 +545,11 @@ def check_search(search, res, base=""):
 
 
 def check_consistency(book, res):
-    base = book.get("bookSourceUrl", "")
+    base = book.get("bookSourceUrl")
+    if not isinstance(base, str):
+        _t = type(base).__name__ if base is not None else "null"
+        res.err("R7", f"bookSourceUrl 类型异常（应为字符串，实得 {_t}）：无法判定协议，须改为字符串")
+        return
     if not base:
         res.err("R7", "bookSourceUrl 为空")
         return
@@ -527,7 +557,9 @@ def check_consistency(book, res):
     if b_scheme == "?":
         res.err("R7", f"bookSourceUrl 协议异常：{base[:60]}")
     for field in ("searchUrl", "exploreUrl"):
-        v = book.get(field) or ""
+        v = book.get(field)
+        if not isinstance(v, str):
+            continue  # 非字符串字段（数组/空等）无协议可查，跳过
         schemes = set(re.findall(r"https?://", v))
         if schemes and b_scheme != "?":
             other = schemes - {b_scheme + "://"}

@@ -595,7 +595,7 @@ def detect_mode(expr):
         return "regex"   # ':' 正则模式本地不建模, 由报告层标「需真机验证」
     if e.startswith("@Json:") or e.startswith("$.") or e.startswith("$[") or is_jsonpath(e):
         return "json"
-    if e.startswith("@CSS:"):
+    if e[:5].upper() == "@CSS:":   # Legado 3.25: startsWith("@CSS:", true) 大小写不敏感
         return "css"
     if e.startswith("@@"):
         return "jsoup"
@@ -645,8 +645,8 @@ def _strip_rule_prefix(rule):
     core = rule.strip()
     rev = core.startswith("-")
     core = core.lstrip("-")
-    if core.startswith("@CSS:"):
-        core = core[len("@CSS:"):]
+    if core[:5].upper() == "@CSS:":   # 与 AnalyzeByJSoup.kt: startsWith("@CSS:", true) 对齐
+        core = core[5:]
     elif core.startswith("@@"):
         core = core[2:]
     return core, rev
@@ -1390,6 +1390,9 @@ def main():
     try:
         with open(args.booksource, encoding="utf-8-sig") as _f:
             src = json.load(_f)
+        if not isinstance(src, (dict, list)):
+            # H4：纯 null / 标量顶层不是合法书源，干净 exit=2，不崩堆栈
+            print("书源文件顶层不是对象或数组（如 null / 标量），无法验证"); sys.exit(2)
         if isinstance(src, list):
             # App 导入格式是数组; 取第一个书源验证(多书源文件请拆开或逐个传)
             if not src:

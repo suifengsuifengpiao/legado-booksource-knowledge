@@ -91,6 +91,14 @@ def get_explore_regions(src):
     ev_raw = src.get("exploreUrl")
     ev = _parse_rule_region(ev_raw)
     top_re = _parse_rule_region(src.get("ruleExplore"))  # 顶层 ruleExplore(所有入口共用)
+    if not (isinstance(top_re, dict) and top_re):
+        # 3.25 语义: ruleExplore 为空对象/缺失时, 发现页回退 ruleSearch 的解析规则
+        # (实测: 吾看书 ruleExplore={} + exploreUrl 18 条入口, 真机发现页正常)。
+        # 不回退会让每个入口各报一条「缺字段: bookList/name/bookUrl」——
+        # 18 条假 ERROR, 把"工具没建模这条回退"说成"书源坏了"。
+        _rs = _parse_rule_region(src.get("ruleSearch"))
+        if isinstance(_rs, dict) and _rs:
+            top_re = _rs
     # 未配置 / 纯文本(单URL 或 Legado 标准 "标题::URL" 多行) -> 规则共用顶层 ruleExplore
     if ev is None:
         return None  # 未配置 exploreUrl → 调用方跳过发现频道校验(此前落到这里会返回 []，被误判成"配了但无规则")
@@ -646,21 +654,30 @@ def check_rule_pitfalls(src, label, errors, warns, notes):
     #     加载时间 ≈ 页数 × N 毫秒。sk.3qdus.com 19 页目录被拖到 ~19 秒(浏览器只加载 1 页故秒开)。
     #     除非为绕过搜索限流刻意设置(shumi99 30秒间隔), 否则分页站点不要设。
     cr = src.get("concurrentRate")
-    if isinstance(cr, str) and cr.strip():
+    _cr_int = None
+    if isinstance(cr, bool):
+        pass
+    elif isinstance(cr, (int, float)):
+        # 低2：数字型 concurrentRate（如 30000）App 端也接受，本闸先前只认字符串导致静默漏检
+        if cr > 0:
+            _cr_int = int(cr)
+    elif isinstance(cr, str) and cr.strip():
         m = re.match(r"\s*(\d+)", cr)
-        if m and int(m.group(1)) > 0:
-            has_paging = bool(src.get("exploreUrl"))
-            toc = _parse_rule_region(src.get("ruleToc"))
-            if isinstance(toc, dict) and toc.get("nextTocUrl"):
-                has_paging = True
-            con = _parse_rule_region(src.get("ruleContent"))
-            if isinstance(con, dict) and con.get("nextContentUrl"):
-                has_paging = True
-            if has_paging:
-                warns.append(
-                    "[%s] concurrentRate=%s 是全局串行限速(两次请求至少间隔 N 毫秒, 跨全书源): "
-                    "叠加分页(目录/正文/发现)会把并发抓取退化成串行, 加载时间≈页数×N毫秒(实测19页目录被拖到~19秒)。"
-                    "除非为绕过搜索限流刻意设置, 否则分页站点不要设; 限流改用 enabledCookieJar+loginCheckJs 双清" % (label, cr))
+        if m:
+            _cr_int = int(m.group(1))
+    if _cr_int is not None:
+        has_paging = bool(src.get("exploreUrl"))
+        toc = _parse_rule_region(src.get("ruleToc"))
+        if isinstance(toc, dict) and toc.get("nextTocUrl"):
+            has_paging = True
+        con = _parse_rule_region(src.get("ruleContent"))
+        if isinstance(con, dict) and con.get("nextContentUrl"):
+            has_paging = True
+        if has_paging:
+            warns.append(
+                "[%s] concurrentRate=%s 是全局串行限速(两次请求至少间隔 N 毫秒, 跨全书源): "
+                "叠加分页(目录/正文/发现)会把并发抓取退化成串行, 加载时间≈页数×N毫秒(实测19页目录被拖到~19秒)。"
+                "除非为绕过搜索限流刻意设置, 否则分页站点不要设; 限流改用 enabledCookieJar+loginCheckJs 双清" % (label, cr))
 
     # 11) nextTocUrl/nextContentUrl 取"分页条最后一个链接(尾页)"而非"下一页" → 跳页丢章。
     #     反模式: 写成 .page-link:last-child@href / a:last-of-type@href / 含"尾页"字样的选择器,
@@ -848,11 +865,11 @@ def check_url_options(src, label, errors, warns, notes=None):
 
 
 def check_source(src, idx, errors, warns, notes):
-    label = src.get("bookSourceName") or ("#index-%d" % idx)
-
     if not isinstance(src, dict):
-        errors.append("[%s] 书源应为 JSON 对象" % label)
+        # H3：类型守卫必须置于最前，否则 src.get(...) 在 list/str/None/数字 上抛 AttributeError 崩栈。
+        errors.append("[#index-%d] 书源项不是 JSON 对象：%r（数组元素必须为对象；null/字符串/数字/数组均非法，App 导入会失败）" % (idx, src))
         return
+    label = src.get("bookSourceName") or ("#index-%d" % idx)
 
     # Legado 导出的规则区域(searchUrl/ruleBookInfo/ruleToc/ruleContent)是字符串化 JSON，
     # 先解析为对象以便校验内部子字段；解析失败则保持原样，后续会报“不是对象”。
@@ -936,8 +953,13 @@ def check_source(src, idx, errors, warns, notes):
             errors.append("[%s] %s 不是对象" % (label, disp))
             continue
         for f in fields:
-            if not region.get(f):
+            _val = region.get(f)
+            if not _val:
                 errors.append("[%s] %s 缺字段: %s" % (label, disp, f))
+            elif isinstance(_val, (list, dict)):
+                # M4：字段值是数组/对象（期望字符串，如 bookList 应是 URL/@js 字符串）；
+                # App 端按字符串解析会崩溃或静默失败。只 WARN 提示，不阻断已有 ERROR 逻辑。
+                warns.append("[%s] %s 字段 %s 类型为 %s（期望字符串）：App 端按字符串解析，数组/对象会导致崩溃或静默失败" % (label, disp, f, type(_val).__name__))
 
     # 发现频道(exploreUrl)单独校验: 兼容列表/对象/纯URL形态, 校验每条 ruleExplore 的必备子字段
     explore_regions = get_explore_regions(src)
@@ -996,7 +1018,7 @@ def check_source(src, idx, errors, warns, notes):
     has_valid_charset = False
     if isinstance(header, str) and re.search(r'"charset"\s*:', header):
         has_valid_charset = True
-    for _uk in ("searchUrl", "exploreUrl", "bookUrl", "tocUrl"):
+    for _uk in ("searchUrl", "exploreUrl", "bookUrl", "tocUrl", "ruleContent"):
         _uv = src.get(_uk)
         _cands = []
         if isinstance(_uv, str):
@@ -1007,6 +1029,10 @@ def check_source(src, idx, errors, warns, notes):
                     _cands.append(str(_it.get("url", "")))
                 elif isinstance(_it, str):
                     _cands.append(_it)
+        elif isinstance(_uv, dict):  # 低1：ruleContent 等解析后的对象，检查 content 子字段行内选项里的 charset
+            _rc_content = _uv.get("content")
+            if isinstance(_rc_content, str):
+                _cands.append(_rc_content)
         for _cand in _cands:
             if '"charset"' in _cand:
                 has_valid_charset = True

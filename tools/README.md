@@ -1,12 +1,14 @@
-# Legado 书源工具链（legado-booksource-debug 技能 v1.14.10）
+# Legado 书源工具链（legado-booksource-debug 技能 v1.15.20）
 
 本地化校验与真机语义对齐工具集。核心原则：**本地不建模的语义如实降级为「需真机验证」，绝不跑出与真机不符的假结果**。
 
-> **同步状态（2026-10-26 20:46）**：本目录 15 个脚本已与技能 `scripts/` **逐文件 md5 一致**。
-> 本次补齐差距：`test_parse.py` / `validate_booksource.py` 从 v1.14.9 旧版更新到含「`ruleContent.replaceRegex` 在 3.25 是活字段、但必须以 `##` 开头；书源顶层 `replaceRegex` 不是 3.25 字段会被 Gson 静默丢弃」的纠错版。
-> 另：`lint/booksource_lint.py`（知识库侧 lint 工具，非技能脚本）新增 `strip_url_options()`。
+> **同步状态（2026-11-03）**：本目录 17 个脚本已与技能 `scripts/` **逐文件 md5 一致**（对应技能 v1.15.20）。
+> 本轮追平的五处：`check_request_layer.py` / `check_version_sync.py` / `test_parse.py` / `validate_booksource.py` / `verify_booksource.py`。此前本目录停在更早版本，含 v1.15.16–v1.15.19 的请求层闸修复（R2 分隔符 / R5 剥锚点与 host / 选项段 gson lenient / `<js>` 短路 / 类型守卫）、`check_version_sync` 非技能包 exit=1 与 `display_name` 版本比对、`validate_booksource` 类型守卫前置，以及 v1.15.20 的四项解析层修复（`ruleExplore` 空对象回退 `ruleSearch` / 列表链接 `//x`→`.//x` / JSOUP 求值兜底 / `@CSS:` 大小写不敏感）。**旧版会误判正常书源**，已全部替换。
+> 注意：本目录脚本平铺在根目录（非 `scripts/` 子目录），`evals/run_evals.py` 按 `scripts/` 定位校验器，故不能在本目录原地跑评测；评测以技能包内 `evals/run_evals.py` 为准（96/96）。
+> 另：`lint/booksource_lint.py`（知识库侧 lint 工具，非技能脚本）含 `strip_url_options()`。
 >
-> **独立发布包（给其他会话 / 其他 AI）**：`releases/legado-tools_v1.14.10.zip`（2.5MB，解压即用，不需要装技能；**不含 b2**）。
+> **最新技能包（v1.15.20）**：`https://gitee.com/z157001/legado-booksource-knowledge/releases/download/v1.15.20/legado-booksource-debug_v1.15.20.skill`（解压即用，内含 `scripts/` 与本目录同名同 md5 的 17 个脚本）。
+> **历史独立包**：`releases/legado-tools_v1.14.10.zip`（2.5MB，解压即用，不需要装技能；**不含 b2**）——已过期，仅存档。
 > B2 真机引擎单独发包：`legado-tools-b2-runtime_v1.14.10.zip`（27MB，含 APK 转出的 4 个 jar + enjarify 修复包 + 已编译 harness，解压即跑）。
 > 下载走 Release 附件（raw 对 >20MB 文件返回 403）：https://gitee.com/z157001/legado-booksource-knowledge/releases/download/v1.14.10-b2.5/legado-tools-b2-runtime_v1.14.10.zip
 > ```bash

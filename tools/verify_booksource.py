@@ -262,37 +262,80 @@ def _apply_clean_ops(val, expr):
     return val
 
 
+def _jsoup_first(html_text, expr):
+    """用 test_parse 的 JSOUP 求值层取首个值, 作为非 XPath 规则的兜底。
+
+    由来(E26 实证): tocUrl 常见写法是 JSOUP 默认规则 `text.查看更多章节@href`
+    (吾看书等), 而本函数此前只认裸属性与 XPath —— lxml 对 JSOUP 规则必抛异常,
+    于是 tocUrl 恒为 None, 目录/正文连锁 SKIP, 报告看起来像"书源错了"。
+    JSOUP 是 3.25 的默认引擎, 不兜底等于默认不看。
+    """
+    try:
+        if SCRIPT_DIR not in sys.path:
+            sys.path.insert(0, SCRIPT_DIR)
+        import test_parse as TP
+        if not getattr(TP, "HAVE_BS4", False):
+            return None
+        soup = TP.BeautifulSoup(html_text, "html.parser")
+        vals, err = TP.eval_rule_jsoup(soup, expr)
+        if err or not vals:
+            return None
+        v = vals[0]
+        v = v.strip() if isinstance(v, str) else None
+        return v or None
+    except Exception:
+        return None
+
+
+def _looks_xpath(loc):
+    """该定位串是否是 XPath 形态(而非 3.25 默认的 JSOUP 规则)。
+
+    只对非 XPath 形态启用 JSOUP 兜底: XPath 规则取空时必须老实报 MISS,
+    不能拿 CSS 语义再求一次——那会把"写错的 XPath"变成"命中错误节点"的假阳性。
+    """
+    s = (loc or "").strip()
+    return s.startswith("/") or s.lower().startswith("@xpath:")
+
+
 def first_match(html_text, xpath):
     """在 HTML 上取首个匹配(属性或文本), 应用 ## 正则清洗, 用于推导下一跳 URL。
 
     若定位表达式是裸属性(如 '@href'), 退化为取文档中首个含该属性的元素的属性值。
+    非 XPath 形态(3.25 默认引擎 JSOUP 规则, 如 `text.查看更多章节@href`)走
+    test_parse 求值层兜底 —— 否则这类 tocUrl 恒为 None, 目录/正文被误判成 SKIP。
     """
     loc = strip_locator(xpath)
     if not loc:
         return None
     try:
         tree = lxml_html.fromstring(html_text)
-        m = _ATTR_RE.match(loc.strip())
-        if m:
-            attr = m.group(1)
-            v = None
-            for el in tree.iter():
-                if hasattr(el, "get") and el.get(attr):
-                    v = el.get(attr)
-                    break
-        else:
-            r = tree.xpath(loc)
-            if not r:
-                return None
-            v = r[0]
-            if isinstance(v, str):
-                v = v.strip() or None
-            elif hasattr(v, "text_content"):
-                v = v.text_content().strip() or None
-            else:
-                v = str(v).strip() or None
     except Exception:
+        # 连 DOM 都建不起来时, JSOUP 通道同样不可用
         return None
+    m = _ATTR_RE.match(loc.strip())
+    if m:
+        attr = m.group(1)
+        v = None
+        for el in tree.iter():
+            if hasattr(el, "get") and el.get(attr):
+                v = el.get(attr)
+                break
+    else:
+        try:
+            r = tree.xpath(loc)
+        except Exception:
+            # JSOUP 规则交给 test_parse(内部已应用 ## 清洗, 不可再清洗一次);
+            # 真 XPath 语法错不兜底, 让它老实 MISS。
+            return None if _looks_xpath(loc) else _jsoup_first(html_text, xpath)
+        if not r:
+            return None if _looks_xpath(loc) else _jsoup_first(html_text, xpath)
+        v = r[0]
+        if isinstance(v, str):
+            v = v.strip() or None
+        elif hasattr(v, "text_content"):
+            v = v.text_content().strip() or None
+        else:
+            v = str(v).strip() or None
     return _apply_clean_ops(v, xpath)
 
 
@@ -394,6 +437,14 @@ def first_link_from_list(html_text, list_loc, url_loc):
         if hasattr(first, "get"):
             return first.get(attr)
         return None
+    # Legado 语义: ruleBookUrl / ruleChapterUrl 挂在列表首个节点上求值(相对该节点)。
+    # 但 lxml 的 '//a/@href' 是**绝对路径**(从文档根重搜), 会取到页面顶部 logo/导航链 ——
+    # 实测后果: bookinfo 被抓成首页, 详情/目录/正文全 MISS(吾看书 E26)。
+    # 故把绝对路径改写为相对: '//x' -> './/x', '/x' -> './x'。
+    if url_loc.startswith("//"):
+        url_loc = "." + url_loc
+    elif url_loc.startswith("/"):
+        url_loc = "." + url_loc
     try:
         r = first.xpath(url_loc)
     except Exception:
@@ -444,6 +495,9 @@ def main():
     try:
         with open(args.booksource, encoding="utf-8-sig") as _f:
             src = json.load(_f)
+        if not isinstance(src, (dict, list)):
+            # H4：纯 null / 标量顶层不是合法书源，干净 exit=2，不崩堆栈
+            print("书源文件顶层不是对象或数组（如 null / 标量），无法实测"); sys.exit(2)
         if isinstance(src, list):
             # App 导入格式是数组; 取第一个书源实测(多书源文件请拆开或逐个传)
             if not src:
