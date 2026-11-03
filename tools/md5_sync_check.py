@@ -80,6 +80,7 @@ def main():
     dst = {f for f in os.listdir(tools_dir)
            if f.endswith(".py") and os.path.isfile(os.path.join(tools_dir, f))}
     dst.discard(SELF)  # 本门禁脚本自身不是技能脚本
+    src.discard(SELF)  # 两侧都排除，避免拿 tools/ 与自身比对时误报「缺失」
 
     fails, warns, oks = [], [], []
 
