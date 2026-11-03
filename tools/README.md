@@ -4,10 +4,11 @@
 
 > **同步状态（2026-11-03）**：本目录 17 个脚本已与技能 `scripts/` **逐文件 md5 一致**（对应技能 v1.15.20）。
 > 本轮追平的五处：`check_request_layer.py` / `check_version_sync.py` / `test_parse.py` / `validate_booksource.py` / `verify_booksource.py`。此前本目录停在更早版本，含 v1.15.16–v1.15.19 的请求层闸修复（R2 分隔符 / R5 剥锚点与 host / 选项段 gson lenient / `<js>` 短路 / 类型守卫）、`check_version_sync` 非技能包 exit=1 与 `display_name` 版本比对、`validate_booksource` 类型守卫前置，以及 v1.15.20 的四项解析层修复（`ruleExplore` 空对象回退 `ruleSearch` / 列表链接 `//x`→`.//x` / JSOUP 求值兜底 / `@CSS:` 大小写不敏感）。**旧版会误判正常书源**，已全部替换。
-> 注意：本目录脚本平铺在根目录（非 `scripts/` 子目录），`evals/run_evals.py` 按 `scripts/` 定位校验器，故不能在本目录原地跑评测；评测以技能包内 `evals/run_evals.py` 为准（96/96）。
+> 注意：本目录脚本平铺在根目录（非 `scripts/` 子目录）。v1.15.21 起 `evals/run_evals.py` 已支持平铺定位，可在本目录原地跑，结果为 **94/96**——差的 2 条恒为 `self_audit`（检的是技能包自身结构，本目录没有 `references/` 文档树）。技能包内跑仍是 **96/96**。
 > **防复发门禁**：`python3 tools/md5_sync_check.py <技能包目录> [--run-evals]`
 > - 只比 md5：一致 `exit=0`、漂移或缺失 `exit=1`、路径错 `exit=2`
-> - 加 `--run-evals`：md5 一致后再在本目录原地跑评测，`self_audit` 两条按布局豁免（`tools/` 无 `SKILL.md`/`references/`，必然失败），其余任一失败即 `exit=1`
+> - 加 `--run-evals`：md5 一致后再在本目录原地跑评测，**豁免名单精确到用例名**，只有 `self_audit.py` 与 `self_audit.py --self-test` 两条（`tools/` 无 `SKILL.md`/`references/`，必然失败），其余任一失败即 `exit=1`
+> - 实测基线：正常 `PASS 94 / FAIL 2（豁免 2）exit=0`；删掉 `scripts/jsoup_eval/` 后 `PASS 93 / FAIL 3（豁免 2 + 触发 1）exit=1`——**红三条、只豁免两条**，别把豁免的两条漏记成「只坏一处」
 > - 为什么要有第二项：本轮事故正是**文件 md5 全一致、目录结构却不同**，脚本各自没错、合起来跑不起来。md5 抓不到这种，得真跑一遍。
 > - 下次升级技能后先跑这条，再谈别的。
 > 另：`lint/booksource_lint.py`（知识库侧 lint 工具，非技能脚本）含 `strip_url_options()`。

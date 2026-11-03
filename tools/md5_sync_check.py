@@ -19,6 +19,13 @@
         （self_audit 需要 SKILL.md / references/ 完整结构，tools/ 天然没有，
           按布局豁免；排除它之后仍失败才说明真的跑错了脚本）
 
+豁免范围（按用例名精确匹配，不做整行关键词搜寻）：
+    self_audit.py
+    self_audit.py --self-test
+    仅此两条。用例名从 "[FAIL] %-34s %s" 的固定列宽字段解析，解析不出时
+    按「不豁免」处理——宁可红，不静默放行。失败原因文本里提到 self_audit
+    的其他用例不会被误豁免。
+
 退出码：
     0  全部一致（允许有 WARN；--run-evals 时非 self_audit 用例全过）
     1  存在 FAIL（漂移 / 缺失 / 评测失败 / 整体跑不起来）
@@ -28,10 +35,28 @@
 import argparse
 import hashlib
 import os
+import re
 import subprocess
 import sys
 
 SELF = os.path.basename(os.path.abspath(__file__))
+
+# run_evals.py 的失败行格式固定为 "[FAIL] %-34s %s"（用例名左对齐 34 宽 + 空格 + 原因）
+FAIL_PREFIX = "[FAIL] "
+FAIL_NAME_WIDTH = 34
+
+
+def fail_case_name(line):
+    """从 "[FAIL] <用例名 34 宽> <原因>" 中取出用例名，取不到返回 None。
+
+    按固定列宽取，而非在整行里搜关键词——否则失败原因里出现 "self_audit"
+    字样的其他用例会被当成豁免对象，属静默放行。
+    """
+    rest = line[len(FAIL_PREFIX):]
+    if len(rest) > FAIL_NAME_WIDTH and rest[FAIL_NAME_WIDTH] == " ":
+        return rest[:FAIL_NAME_WIDTH].strip() or None
+    m = re.match(r"^(\S+(?: \S+)*?)\s{2,}", rest)  # 用例名超宽时回退
+    return m.group(1) if m else None
 
 
 def run_evals(tools_dir):
@@ -54,12 +79,17 @@ def run_evals(tools_dir):
     out = (p.stdout or "") + (p.stderr or "")
     lines = out.splitlines()
     fail_lines = [l for l in lines if l.startswith("[FAIL]")]
-    real = [l for l in fail_lines if "self_audit" not in l]
+    real, exempt = [], []
+    for l in fail_lines:
+        name = fail_case_name(l)
+        # 名字解析不出时不豁免：宁可红，不静默放行
+        (exempt if name and name.startswith("self_audit") else real).append(l)
     passes = [l for l in lines if l.startswith("[PASS]")]
-    exempt = len(fail_lines) - len(real)
 
     print(f"[INFO] 原地评测：PASS {len(passes)} / FAIL {len(fail_lines)}"
-          f"（其中 self_audit {exempt} 条按布局必然失败，豁免）")
+          f"（其中 self_audit {len(exempt)} 条按布局必然失败，豁免）")
+    for l in exempt:
+        print(f"[SKIP] {fail_case_name(l)}  —— 依赖技能包结构，tools/ 天然没有")
     for l in real:
         print(l)
     if not passes:
