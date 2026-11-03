@@ -23,7 +23,11 @@ import os
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+# 兼容两种布局: 技能包 `<root>/scripts/`; 知识库 tools/ 平铺(脚本与 evals/ 同级)。
+# 旧版只认 `../scripts`, 在平铺布局下 import 直接 ModuleNotFoundError ——
+# 知识库侧那条「真机等价回归」等于从未跑过。
 sys.path.insert(0, os.path.join(HERE, "..", "scripts"))
+sys.path.insert(0, os.path.dirname(HERE))
 import test_parse as T  # noqa: E402
 from bs4 import BeautifulSoup  # noqa: E402
 

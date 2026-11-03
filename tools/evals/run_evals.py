@@ -36,19 +36,57 @@ import subprocess
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SKILL_DIR = os.path.dirname(HERE)
-VALIDATOR = os.path.join(SKILL_DIR, "scripts", "validate_booksource.py")
+
+
+def _resolve_skill_dir(here):
+    """定位含 `scripts/` 的技能根目录, 兼容两种布局。
+
+    (a) 技能包布局: `<root>/evals/run_evals.py` + `<root>/scripts/` —— 直接取上一级。
+    (b) 知识库 tools/ 布局: 脚本平铺在 `<root>/*.py`, 评测在 `<root>/evals/`,
+        校验器**同级而非 scripts/** —— 旧版硬编码 `scripts/` 会报「找不到校验器」,
+        于是知识库那边根本跑不了评测, 只能相信技能包里的那份结果。
+    知识库侧 `tools/` 是**别人取工具的地方**, 那边跑不起来等于第二通道不存在。
+
+    规则: 上一级有 `scripts/` 用它; 否则若评测目录的上一级**自身**含校验器, 用它;
+    再否则向上找两级。找不到时回退旧行为, 由后续报错如实暴露, 不静默降级。
+    """
+    parent = os.path.dirname(here)
+    if os.path.isdir(os.path.join(parent, "scripts")):
+        return parent
+    if os.path.isfile(os.path.join(parent, "validate_booksource.py")):
+        return parent
+    grand = os.path.dirname(parent)
+    if os.path.isdir(os.path.join(grand, "scripts")):
+        return grand
+    if os.path.isfile(os.path.join(grand, "validate_booksource.py")):
+        return grand
+    return parent
+
+
+SKILL_DIR = _resolve_skill_dir(HERE)
+
+
+def _sdir(skill_dir, name):
+    """脚本实际所在目录: 优先 `<根>/scripts/`, 平铺布局则退回 `<根>/` 本身。"""
+    d = os.path.join(skill_dir, "scripts")
+    return d if os.path.isdir(d) else skill_dir
+
+
+SCRIPTS_BASE = _sdir(SKILL_DIR, None)
+
+VALIDATOR = os.path.join(SCRIPTS_BASE, "validate_booksource.py")
 CASES = os.path.join(HERE, "validate_cases.json")
 SAMPLE = os.path.join(SKILL_DIR, "samples", "sample_booksource.json")
-JS_LAYER = os.path.join(SKILL_DIR, "scripts", "js_layer_check.py")
-SELF_AUDIT = os.path.join(SKILL_DIR, "scripts", "self_audit.py")
-TEST_PARSE = os.path.join(SKILL_DIR, "scripts", "test_parse.py")
+JS_LAYER = os.path.join(SCRIPTS_BASE, "js_layer_check.py")
+SELF_AUDIT = os.path.join(SCRIPTS_BASE, "self_audit.py")
+TEST_PARSE = os.path.join(SCRIPTS_BASE, "test_parse.py")
 REALEQUIV = os.path.join(HERE, "jsoup_realdevice_equiv.py")
-SCRIPTS_DIR = os.path.join(SKILL_DIR, "scripts")
+SCRIPTS_DIR = SCRIPTS_BASE
 _ANSI_RE = re.compile(r"\033\[[0-9;]*m")
 # 请求层闸(第五道闸)。用例里的 booksource_file 路径**相对技能根目录**解析，
 # 这样标本固定放 samples/、可被引擎侧原样复跑（v1.15.13：此前 ERROR=4 没有落盘标本，
 # 数字答不出「在哪份文件上数的」，属 E19 自犯）。
-REQUEST_GATE = os.path.join(SKILL_DIR, "scripts", "check_request_layer.py")
+REQUEST_GATE = os.path.join(SCRIPTS_BASE, "check_request_layer.py")
 ATTR_PATH = os.path.join(HERE, "request_layer_expected_output.txt")
 
 
@@ -416,7 +454,20 @@ def main():
                            for seg in ("$ " + stored_body).split("\n$ ")
                            if seg.strip()] if stored_body.strip() else []
             chunks, replayed = [], 0
+            # 平铺布局(知识库 tools/): 证据里的 `python3 scripts/xxx.py` 没有 scripts/ 这一级,
+            # 原样复跑会 "can't open file"。只在这时把开头的 `scripts/` 剥掉; 技能包布局
+            # (SCRIPTS_BASE 就等于 <根>/scripts) 命令一字不改, 证据逐字比对的语义不受影响。
+            _flat = os.path.basename(SCRIPTS_BASE.rstrip("/")) != "scripts"
             for i, c in enumerate(cmds):
+                c_run, c_show = c, c
+                if _flat:
+                    c_run = re.sub(r"^(python3\s+)scripts/", r"\1", c)
+                    # 比对用「规范化命令」：把平铺布局实际执行的命令还原成存档里的写法。
+                    # 为什么必须还原而不是直接比：不一致要落在**输出**上才有意义；
+                    # 若把 `$ python3 scripts/x.py` vs `$ python3 x.py` 也算差异，
+                    # 平铺布局会永久红，等于把「布局不同」误报成「闸行为漂移」——
+                    # 那是最容易让人关掉这条回归的一种假红。
+                    c_show = c
                 # 夹具路径不在技能目录里（如临时夹具）时无法保证它还在 —— 退化为读存档段落，
                 # 并**明写退化了几条**。静默用存档顶替重跑 = 假绿，这里宁可多打印一行。
                 fixture = c.split()[2] if len(c.split()) > 2 else ""
@@ -428,11 +479,11 @@ def main():
                 # 一律 sh -c：夹具路径允许含空格/中文，split() 会切坏；NO_COLOR 归一化颜色输出，
                 # PYTHONIOENCODING 防子进程在非 UTF-8 locale 下把中文写崩
                 env = dict(os.environ, PYTHONIOENCODING="utf-8", NO_COLOR="1")
-                proc = subprocess.run(["sh", "-c", c], capture_output=True, text=True,
+                proc = subprocess.run(["sh", "-c", c_run], capture_output=True, text=True,
                                       cwd=SKILL_DIR, env=env)
                 body = (proc.stdout or "") + (proc.stderr or "")
                 # `$ 命令` 行也要比对：少了它，读者不知道这段输出是哪条命令跑出来的（E19 的同一套追问）
-                chunks.append("$ %s\n%s[exit=%d]\n" % (c, body.rstrip() + "\n", proc.returncode))
+                chunks.append("$ %s\n%s[exit=%d]\n" % (c_show, body.rstrip() + "\n", proc.returncode))
             actual = "".join(chunks)
             if actual.strip() == stored_body.strip():
                 passed += 1

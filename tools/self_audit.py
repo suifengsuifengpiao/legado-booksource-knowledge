@@ -40,13 +40,33 @@ import sys
 import glob
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-SKILL_DIR = os.path.dirname(HERE)
+
+
+def _resolve_root(here):
+    """技能根目录, 兼容两种布局: 技能包 `<root>/scripts/self_audit.py`;
+    知识库 tools/ 平铺 `<root>/self_audit.py`(脚本与 SKILL.md 同级)。
+
+    旧版恒取上一级: 平铺布局下 SKILL_DIR 落到仓库根, SKILL.md / _meta.json /
+    skill-dependencies.json / references/ 全部「取不到」, 于是自检在知识库侧一路红 ——
+    不是技能坏了, 是自检没在那边跑通过, 等于知识库那份根本没有自检。
+    """
+    parent = os.path.dirname(here)
+    if (os.path.isfile(os.path.join(parent, "SKILL.md"))
+            or os.path.isdir(os.path.join(parent, "references"))):
+        return parent
+    return here
+
+
+SKILL_DIR = _resolve_root(HERE)
+SCRIPTS_DIR = HERE if os.path.isfile(os.path.join(HERE, "self_audit.py")) and not os.path.isdir(
+    os.path.join(os.path.dirname(HERE), "scripts")) else os.path.join(
+    os.path.dirname(HERE), "scripts")
 
 DOC_FILES = sorted(glob.glob(os.path.join(SKILL_DIR, "references", "*.md")))
 SKILL_MD = os.path.join(SKILL_DIR, "SKILL.md")
 if os.path.isfile(SKILL_MD):
     DOC_FILES.append(SKILL_MD)
-PY_FILES = sorted(glob.glob(os.path.join(SKILL_DIR, "scripts", "*.py"))) + \
+PY_FILES = sorted(glob.glob(os.path.join(SCRIPTS_DIR, "*.py"))) + \
            sorted(glob.glob(os.path.join(SKILL_DIR, "evals", "*.py")))
 
 EMOJI = "🔴🔥⚠️✅📌🚀💡❌"
@@ -338,7 +358,7 @@ EVID_RE = re.compile(
 # 真实存在，但「编号 → 用途」的登记只散落在实现里，没有任何机械检查保证头注释与 emit 面一致。
 # 本检查只做零误报的那一半：**代码里 emit 的每个 R 编号必须在头注释「检查项」里声明**；
 # 反方向（声明了却没 emit）不报 —— 预留编号是合法写法，报了是噪音（沿用「宁可少抓不可乱叫」）。
-NEW_GATE = os.path.join(SKILL_DIR, "scripts", "check_request_layer.py")
+NEW_GATE = os.path.join(SCRIPTS_DIR, "check_request_layer.py")
 GATE_DECL_RE = re.compile(r"^\s{2}(R\d)\s", re.M)          # 头注释「检查项」条目：两空格缩进 + R编号
 GATE_EMIT_RE = re.compile(r"\.(?:err|warn|note)\(\"(R\d)\"")
 
@@ -361,7 +381,11 @@ def check_evidence_files(errors):
     for p in DOC_FILES:
         for i, line in enumerate(_read(p).splitlines(), 1):
             for token in EVID_RE.findall(line):
-                if os.path.exists(os.path.join(SKILL_DIR, token)):
+                # 平铺布局: 文档里的 `scripts/x.py` 实际就在根目录 —— 两种写法都认,
+                # 否则知识库侧会把「布局不同」读成「证据丢失」, 27 条假 ERROR。
+                if (os.path.exists(os.path.join(SKILL_DIR, token))
+                        or (token.startswith("scripts/")
+                            and os.path.exists(os.path.join(SKILL_DIR, token.split("/", 1)[1])))):
                     continue
                 errors.append(
                     "[%s:%d] 证据文件未随包: 文档引用了 `%s`, 但技能目录里找不到 → "

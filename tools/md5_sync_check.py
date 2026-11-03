@@ -9,24 +9,68 @@
 用法：
     python3 md5_sync_check.py <技能包目录或 scripts 目录>
     python3 md5_sync_check.py --scripts /path/to/legado-booksource-debug/scripts
+    python3 md5_sync_check.py <技能包目录> --run-evals    # md5 一致后再原地跑评测
 
 判定：
     同名文件 md5 不同      -> FAIL（双源漂移）
     scripts 有、tools 无    -> FAIL（缺失）
     tools 有、scripts 无    -> WARN（本地特化脚本，不阻断）
+    --run-evals 下非 self_audit 用例失败 -> FAIL
+        （self_audit 需要 SKILL.md / references/ 完整结构，tools/ 天然没有，
+          按布局豁免；排除它之后仍失败才说明真的跑错了脚本）
 
 退出码：
-    0  全部一致（允许有 WARN）
-    1  存在 FAIL
+    0  全部一致（允许有 WARN；--run-evals 时非 self_audit 用例全过）
+    1  存在 FAIL（漂移 / 缺失 / 评测失败 / 整体跑不起来）
     2  用法错误或路径不存在
 """
 
 import argparse
 import hashlib
 import os
+import subprocess
 import sys
 
 SELF = os.path.basename(os.path.abspath(__file__))
+
+
+def run_evals(tools_dir):
+    """在本目录原地跑 evals/run_evals.py，只认非 self_audit 的失败。
+
+    tools/ 不是技能包：没有 SKILL.md / references/ 文档树，self_audit 的
+    「schema 登记」「证据文件随包」等检查必然失败——那是布局事实，不是漂移。
+    排除它之后仍失败，才说明真的跑错了脚本或平铺兼容没覆盖到。
+    """
+    rv = os.path.join(tools_dir, "evals", "run_evals.py")
+    if not os.path.isfile(rv):
+        print(f"[ERROR] 找不到评测入口：{rv}")
+        return 2
+    try:
+        p = subprocess.run([sys.executable, "evals/run_evals.py"], cwd=tools_dir,
+                           capture_output=True, text=True, timeout=900)
+    except subprocess.TimeoutExpired:
+        print("[ERROR] 评测超时（>900s）")
+        return 1
+    out = (p.stdout or "") + (p.stderr or "")
+    lines = out.splitlines()
+    fail_lines = [l for l in lines if l.startswith("[FAIL]")]
+    real = [l for l in fail_lines if "self_audit" not in l]
+    passes = [l for l in lines if l.startswith("[PASS]")]
+    exempt = len(fail_lines) - len(real)
+
+    print(f"[INFO] 原地评测：PASS {len(passes)} / FAIL {len(fail_lines)}"
+          f"（其中 self_audit {exempt} 条按布局必然失败，豁免）")
+    for l in real:
+        print(l)
+    if not passes:
+        print("[ERROR] 评测未产出任何 PASS——整体跑不起来（路径/依赖问题，非用例失败）")
+        print("       首行输出：" + (lines[0] if lines else "(空)"))
+        return 1
+    if real:
+        print(f"[ERROR] 非 self_audit 用例失败 {len(real)} 条——脚本不同源或平铺兼容未覆盖")
+        return 1
+    print("[OK] 除 self_audit（技能包结构依赖）外全部通过")
+    return 0
 
 
 def md5_of(path):
@@ -58,6 +102,9 @@ def main():
     ap.add_argument("--tools", default=os.path.dirname(os.path.abspath(__file__)),
                     help="tools 目录，默认取本脚本所在目录")
     ap.add_argument("-q", "--quiet", action="store_true", help="只输出结论行")
+    ap.add_argument("--run-evals", action="store_true",
+                    help="md5 全一致后，在本目录原地跑 evals/run_evals.py；"
+                         "self_audit 相关条目按布局豁免，其余任一失败即 exit=1")
     args = ap.parse_args()
 
     src_arg = args.scripts_opt or args.source
@@ -118,6 +165,9 @@ def main():
         print(f"[ERROR] 双源漂移：{len(fails)} 个脚本不一致——下游会拿到与技能包不同的判定结果")
         return 1
     print("[OK] tools/ 与 scripts/ 逐文件 md5 全一致")
+
+    if args.run_evals:
+        return run_evals(tools_dir)
     return 0
 
 

@@ -5,7 +5,11 @@
 > **同步状态（2026-11-03）**：本目录 17 个脚本已与技能 `scripts/` **逐文件 md5 一致**（对应技能 v1.15.20）。
 > 本轮追平的五处：`check_request_layer.py` / `check_version_sync.py` / `test_parse.py` / `validate_booksource.py` / `verify_booksource.py`。此前本目录停在更早版本，含 v1.15.16–v1.15.19 的请求层闸修复（R2 分隔符 / R5 剥锚点与 host / 选项段 gson lenient / `<js>` 短路 / 类型守卫）、`check_version_sync` 非技能包 exit=1 与 `display_name` 版本比对、`validate_booksource` 类型守卫前置，以及 v1.15.20 的四项解析层修复（`ruleExplore` 空对象回退 `ruleSearch` / 列表链接 `//x`→`.//x` / JSOUP 求值兜底 / `@CSS:` 大小写不敏感）。**旧版会误判正常书源**，已全部替换。
 > 注意：本目录脚本平铺在根目录（非 `scripts/` 子目录），`evals/run_evals.py` 按 `scripts/` 定位校验器，故不能在本目录原地跑评测；评测以技能包内 `evals/run_evals.py` 为准（96/96）。
-> **防复发门禁**：`python3 tools/md5_sync_check.py <技能包目录>`——逐文件 md5 比对，一致 `exit=0`、漂移或缺失 `exit=1`、路径错 `exit=2`。下次升级技能后先跑这条，再谈别的。
+> **防复发门禁**：`python3 tools/md5_sync_check.py <技能包目录> [--run-evals]`
+> - 只比 md5：一致 `exit=0`、漂移或缺失 `exit=1`、路径错 `exit=2`
+> - 加 `--run-evals`：md5 一致后再在本目录原地跑评测，`self_audit` 两条按布局豁免（`tools/` 无 `SKILL.md`/`references/`，必然失败），其余任一失败即 `exit=1`
+> - 为什么要有第二项：本轮事故正是**文件 md5 全一致、目录结构却不同**，脚本各自没错、合起来跑不起来。md5 抓不到这种，得真跑一遍。
+> - 下次升级技能后先跑这条，再谈别的。
 > 另：`lint/booksource_lint.py`（知识库侧 lint 工具，非技能脚本）含 `strip_url_options()`。
 >
 > **最新技能包（v1.15.20）**：`https://gitee.com/z157001/legado-booksource-knowledge/releases/download/v1.15.20/legado-booksource-debug_v1.15.20.skill`（解压即用，内含 `scripts/` 与本目录同名同 md5 的 17 个脚本）。
@@ -22,7 +26,7 @@
 
 | 脚本 | 用途 |
 |---|---|
-| `md5_sync_check.py` | **同源同步门禁**：本目录与技能包 `scripts/` 逐文件 md5 比对，任一不一致 `exit=1`（缺失也算）。`python3 md5_sync_check.py <技能包目录>`。存在意义：本目录是技能 `scripts/` 的镜像，一旦漂移，下游会拿到与技能包判定不同的旧工具——比没有工具更坏 |
+| `md5_sync_check.py` | **同源同步门禁**：本目录与技能包 `scripts/` 逐文件 md5 比对，任一不一致 `exit=1`（缺失也算）。`python3 md5_sync_check.py <技能包目录>`；加 `--run-evals` 再原地跑评测（`self_audit` 按布局豁免）。存在意义：本目录是技能 `scripts/` 的镜像，一旦漂移，下游会拿到与技能包判定不同的旧工具——比没有工具更坏 |
 | `validate_booksource.py` | 书源结构体检：字段校验、铁律检测、searchUrl `<js>` 返回值契约（返回整体 JSON 对象=ERROR；POST body 预编码=WARN）、charset 死字段检测 |
 | `test_parse.py` | 本地规则求值：CSS/XPath/Regex/JSONPath 五路径；`:` 正则列表模式与 `<js>` 容器不本地建模，命中即标「需真机验证」 |
 | `verify_booksource.py` | 端到端验证：抓真实页面跑完整规则链 |
