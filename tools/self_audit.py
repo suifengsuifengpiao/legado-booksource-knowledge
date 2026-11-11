@@ -173,8 +173,31 @@ def _doc_args(script_name, docs):
     return out
 
 
-def check_cli_args(errors):
+def check_cli_args(errors, notices=None):
+    """2) CLI 参数一致性。
+
+    窗口按「脚本名 → 同行 → 遇下一个 .py 截断」收集文档声称的参数(见 _doc_args)。
+    这个窗口有个已知失效模式(v1.15.23 同版补修): 文档写「与 `verify` 的 `--keyword` 对齐」
+    这类**引用其它脚本真实参数**的说明时, `verify` 不是完整 .py 名、窗口不截断,
+    `--keyword` 被算到 js_layer_check.py 头上 → 差集 → 误报 ERROR(假红)。而该参数其实是
+    verify_booksource.py 等真实认的, 不是凭空捏造。修复前只能靠改文档措辞规避(把 `--`
+    去掉), 那是把症状压下去, 判据本身没修。
+
+    判据(纯集合运算, 零语义判断, 贴合本脚本「宁可漏不可吵 / 不做语义检查」的既定取舍):
+    差集里的参数若属于**其它脚本 impl 的并集**, 判为跨脚本引用语境 → 降 [NOTE] 不报 ERROR;
+    谁都不认(如 --self-test 反向标本里的 --no-such-flag) → 仍报 ERROR, 真缺陷不放绿。
+    并集排除 self_audit.py 自身: 它在本检查里本就 continue 跳过, 且它的 --x/--xxx/--times
+    是 docstring 示例串而非真实 CLI 契约, 放进并集会扩大「被放过」范围(拿示例当真相)。
+    """
+    if notices is None:
+        notices = []
     docs = [(os.path.basename(p), _read(p)) for p in DOC_FILES]
+    # 其它脚本真实认的参数并集(排除本检查器自身, 见 docstring)
+    others_impl = set()
+    for p in PY_FILES:
+        if os.path.basename(p) == "self_audit.py":
+            continue
+        others_impl |= _impl_args(_read(p))
     for p in PY_FILES:
         name = os.path.basename(p)
         if name == "self_audit.py":
@@ -182,6 +205,12 @@ def check_cli_args(errors):
         impl = _impl_args(_read(p))
         doc = _doc_args(name, docs)
         for a in sorted(doc - impl):
+            if a in others_impl:
+                notices.append(
+                    "[%s] 文档提到 `%s`, 但它是**其它脚本**真实认的参数(跨脚本引用语境, "
+                    "非本脚本声明); 按 _doc_args 同行窗口会被算到本脚本名下 → 已判为引用, 不报参数错误"
+                    % (name, a))
+                continue
             errors.append("[%s] 文档写了参数 `%s`, 但脚本不认(实现只认: %s) → 照文档跑会静默无效"
                           % (name, a, ", ".join(sorted(impl)) or "无"))
 
@@ -742,7 +771,7 @@ def main():
     errors = []
     notices = []          # 非阻断提示：判不了就说判不了，不混进 [OK]
     check_dangling_refs(errors, verbose)
-    check_cli_args(errors)
+    check_cli_args(errors, notices)
     check_hardcoded(errors, notices)
     check_evidence_files(errors)
     check_dependency_schema(errors)

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-书源本地实测闭环驱动: 自动抓真实页面 → 跑 test_parse → 汇总 PASS/FAIL。
+书源本地实测闭环驱动: 自动抓真实页面 → 跑 test_parse → 汇总四态(PASS/PARTIAL/UNKNOWN/FAIL)。
 
 把"生成书源 → 抓样本 → 验证命中 → 失败则修正重跑"合成一步, 实现真正的本地实测。
 这是 validate_booksource.py(字段完整性) 与 test_parse.py(规则命中) 的总装驱动。
@@ -17,10 +17,17 @@
        发现频道首条入口 URL → 发现列表页
        (搜索抓不到时, 自动回退用发现频道取首本书, 尽量补全详情/目录/正文样本)
     3. 抓到的 HTML 存到 workdir, 调用 test_parse.py 验证各区域命中
-    4. 汇总 PASS/FAIL; 任一核心区域 FAIL 即整体 FAIL, 供 agent 据此修正后重跑
+    4. 按「覆盖度」汇总四态, 供 agent 据此修正后重跑:
+         PASS     = rc==0 且 5 个区域全部有样本且无「JS 本地未验」字段(唯一全绿态)
+         PARTIAL  = rc==0 但有 SKIP 区域, 或存在 JS 终结字段本地不执行(中性项一律不计 PASS)
+         UNKNOWN  = 零样本, 或 test_parse 崩溃/用法错(rc 非 0/1), 或解析超时
+         FAIL     = rc==1(有核心字段 MISS/ERR)
+       退出码: PASS=0 / FAIL=1 / PARTIAL=2 / UNKNOWN=3(非 0 一律不得当「已通过」)
+    字段完整性(validate_booksource.py)独立打印, 不参与四态判定(其 WARN 不阻断)。
 
 说明:
-    - 抓不到的页面(硬防护/Turnstile/受保护 ajax)标注 SKIP, 不计入 FAIL。
+    - 抓不到的页面(硬防护/Turnstile/受保护 ajax/无 URL)标注 SKIP 并据实列出,
+      不再套用「多为硬防护」的模板化单一归因; SKIP 使整体降为 PARTIAL, 不计 PASS。
     - CSS/JS 规则仍由 App 实测, 本驱动只验 XPath/JSONPath。
     - 本驱动负责"测", 不负责"改"; 改规则由 agent 读 FAIL 报告后执行(见 SKILL.md 闭环指令)。
 """
@@ -783,40 +790,78 @@ def main():
     except subprocess.TimeoutExpired:
         print("解析超时(300s): test_parse.py 无响应, 跳过解析结果")
 
-    # ---- 9) 汇总 ----
+    # ---- 9) 汇总: 四态判定(PASS/PARTIAL/UNKNOWN/FAIL) + 覆盖度维度 ----
+    def _collect_js_fields(s):
+        """结构化统计「本地不执行 JS」的规则字段, 不依赖 test_parse stdout 文案。
+        返回 (数量, 字段路径列表), 供覆盖度判定与样例原文核对(S13: 报数附样例)。"""
+        names = []
+
+        def _is_js(v):
+            return isinstance(v, str) and ("<js>" in v or v.strip().startswith("@js:"))
+
+        for g in ("ruleSearch", "ruleExplore", "ruleBookInfo", "ruleToc", "ruleContent"):
+            region = norm_region(s.get(g))
+            items = region if isinstance(region, list) else [region]
+            for item in items:
+                if isinstance(item, dict):
+                    for k, v in item.items():
+                        if _is_js(v):
+                            names.append("%s.%s" % (g, k))
+        for u in ("searchUrl", "exploreUrl"):
+            rv = s.get(u)
+            for v in (rv if isinstance(rv, list) else [rv]):
+                if isinstance(v, str) and v.strip().startswith("<js"):
+                    names.append(u + "(整串<js>)")
+                elif isinstance(v, dict):
+                    for k, x in v.items():
+                        if _is_js(x):
+                            names.append("%s.%s" % (u, k))
+        return len(names), names
+
+    js_n, js_names = _collect_js_fields(src)
+    REGIONS = ("search", "explore", "bookinfo", "toc", "content")
     print("=" * 50)
     print("汇总")
     print("=" * 50)
-    print("字段完整性 : %s" % ("PASS" if field_ok else "FAIL(见上)"))
-    got = [k for k in ("search", "explore", "bookinfo", "toc", "content") if k in samples]
-    skip = [k for k in ("search", "explore", "bookinfo", "toc", "content") if k not in samples]
-    print("已抓样本   : %s" % (", ".join(got) if got else "无"))
+    print("字段完整性 : %s (独立项, 不参与四态判定)" % ("PASS" if field_ok else "FAIL(见上)"))
+    got = [k for k in REGIONS if k in samples]
+    skip = [k for k in REGIONS if k not in samples]
+    print("已抓样本   : %s (%d/%d 区域)" % (", ".join(got) if got else "无", len(got), len(REGIONS)))
     if skip:
-        print("未抓样本   : %s (SKIP, 多为硬防护/Turnstile/受保护接口)" % ", ".join(skip))
+        print("未抓样本   : %s (SKIP; 逐项原因见上方各入口日志, 不再套用单一归因)" % ", ".join(skip))
+    print("JS 本地未验: %d 个字段%s" % (js_n, (" (样例: %s)" % ", ".join(js_names[:4])) if js_names else ""))
+    if js_n:
+        print("            本地 test_parse 不执行这些字段, 须 App 真机或独立 JS 通道复核")
+
+    # 解析超时分支(783-784)下 tproc 未定义, 旧版直接读 tproc.returncode 会崩栈 → 用 locals() 保护
+    tp = locals().get("tproc")
+    rc = tp.returncode if tp is not None else None
     if not got:
-        print("解析命中   : 未判定(本地零样本 —— 全部入口被硬防护/WebView 挡住, 无法真实抓取)")
-        print("            本源疑似需真机 WebView 过 JS 挑战, 请用户在 App 内实测搜索/目录/正文后再判定")
+        print("解析命中   : 未判定(本地零样本 —— 无任一入口取到可解析页面)")
         overall = "UNKNOWN"
+    elif rc == 1:
+        print("解析命中   : FAIL —— 请读上方 [MISS]/[ERR] 报告, 回看 %s 里的真实 HTML 修正规则后重跑" % workdir)
+        overall = "FAIL"
+    elif rc != 0:
+        print("解析命中   : 未判定(test_parse 退出码 %s: 用法/解析错误/崩溃/超时)" % rc)
+        overall = "UNKNOWN"
+    elif skip or js_n > 0:
+        # rc==0 但覆盖不全: 有 SKIP 区域, 或存在 JS 本地未验字段 → 中性项一律不计 PASS
+        why = []
+        if skip:
+            why.append("%d 个区域 SKIP" % len(skip))
+        if js_n > 0:
+            why.append("%d 个 JS 字段本地未验" % js_n)
+        print("解析命中   : PARTIAL —— 已抓区域本地命中, 但覆盖不全(%s)" % "; ".join(why))
+        print("            中性 SKIP / 本地不执行的 JS 规则一律不计为 PASS")
+        overall = "PARTIAL"
     else:
-        # 判定以 test_parse 退出码为准: 0=核心字段全命中(JS 规则中性跳过也算 0);
-        # 1=有核心字段 MISS/ERR; 其它=用法错误/崩溃 → 未判定。
-        # 旧实现 Match stdout 文案("核心字段全部命中 OK"), 而带 JS 规则的书源输出的是
-        # "核心字段本地命中 OK; 另有 N 项 JS 规则需 App 真机验证" —— 不含那句文案,
-        # 于是凡有 JS 规则的书源都被误判成 UNKNOWN(明明本地全绿)。
-        rc = tproc.returncode
-        if rc == 0:
-            print("解析命中   : PASS")
-            overall = "PASS"
-        elif rc == 1:
-            print("解析命中   : FAIL —— 请读上方 [MISS]/[ERR] 报告, 回看 %s 里的真实 HTML 修正规则后重跑本脚本" % workdir)
-            overall = "FAIL"
-        else:
-            print("解析命中   : 未判定(test_parse 退出码 %s: 用法/解析错误或崩溃)" % rc)
-            overall = "UNKNOWN"
+        print("解析命中   : PASS(全 %d 区域有样本且无 JS 本地未验字段)" % len(REGIONS))
+        overall = "PASS"
     print("-" * 50)
     print("总体结果   : %s" % overall)
     print("工作目录   : %s" % workdir)
-    sys.exit(0 if overall == "PASS" else 1)
+    sys.exit({"PASS": 0, "FAIL": 1, "PARTIAL": 2, "UNKNOWN": 3}[overall])
 
 
 if __name__ == "__main__":

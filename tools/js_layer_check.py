@@ -42,6 +42,11 @@ js_layer_check.py —— 在 Node 里执行书源的 webJs / URL 选项 `js` 字
     --ajax-body <字符串>: 注入 java.ajax() 桩的兜底返回体(非取码/提交接口时返回), 默认空串。
     --captcha-b64 <base64>: 注入取码接口(get_btwaf_captcha_base64)返回的图片 base64,
         默认占位 'data:image/jpg;base64,AAAA'。用于验证"取码接口返回内容不同"时的分支。
+    --key <搜索词>: 注入搜索上下文变量 key(3.25 searchUrl <js> 合法绑定, legend-js-api.md:78/89),
+        默认 '剑来'(与 verify_booksource.py 的搜索词参数默认值对齐)。**仅对 searchUrl/exploreUrl
+        作用域的 <js> 片段注入**, 子规则片段不注入 —— 真机子规则作用域没有 key, 若书源误用
+        key 应如实报 ReferenceError, 不能靠全局注入把它假绿放过。
+        --source 模式自动按 where 判定作用域; --js inline 模式整段视为搜索上下文。
 """
 import os
 import sys
@@ -143,6 +148,11 @@ function main() {
   //      (从宽点: prelude 在带完整绑件的 ctx 里执行, 真机 shareScope 是裸作用域, jsLib
   //      顶层引用 java/cookie 等绑定在真机反而会失败——harness 不建模这一层。)
   const ctx = { document, location, cookie, java, source, result, console };
+  // 搜索上下文变量 key: 仅当调用方为「searchUrl/exploreUrl 作用域」片段注入 cfg.key 时才存在。
+  // 真机子规则作用域没有 key —— 不注入时片段若误用 key 仍会 ReferenceError(如实暴露, 不假绿)。
+  if (cfg.key !== undefined) {
+    ctx.key = String(cfg.key == null ? '' : cfg.key);
+  }
   let r;
   try {
     if (cfg.prelude) vm.runInNewContext(cfg.prelude, ctx);
@@ -212,7 +222,7 @@ main();
 
 def run_one(node, code, fixture_html, url, initial_cookie, fixture_html2="", kind="",
             verification_code="", ajax_body=None, captcha_b64=None,
-            prelude="", result_raw=False):
+            prelude="", result_raw=False, search_key=None):
     """在 Node 里跑一段书源 JS, 返回解析后的结果 dict; 失败返回 {ok:False, error}。
     fixture_html2: loginCheckJs 重取(java.connect)后返回的"真实内容"夹具。
     kind: webJs / js / loginCheckJs / list-js, 影响 HARNESS 的判据分支。
@@ -228,6 +238,9 @@ def run_one(node, code, fixture_html, url, initial_cookie, fixture_html2="", kin
     result_raw: True 时 result 桩直接是 fixture_html 字符串(子规则 <js> 语义: 真机子规则的
         result 是上一步传来的列表元素字符串); 默认 False 为响应对象桩(webJs/js/loginCheckJs/
         bookList 语义)。2026-10-25 P2-1 补: 此前子规则 result 语义从未建模。
+    search_key: 非 None 时注入搜索上下文变量 key(harness ctx.key); 由调用方按 where 判定
+        作用域后传入, 子规则片段应传 None(真机子规则无此绑定)。CLI 入口 --key(同 223 行教训:
+        桩必须有 CLI 入口, 否则又是"读了却永远取默认值"的死配置)。
     """
     d = tempfile.mkdtemp(prefix="js_layer_")
     try:
@@ -243,6 +256,9 @@ def run_one(node, code, fixture_html, url, initial_cookie, fixture_html2="", kin
                 cfg["ajaxBody"] = ajax_body
             if captcha_b64 is not None:
                 cfg["captchaB64"] = captcha_b64
+            # key: 仅搜索/发现作用域片段由调用方传入; 子规则片段不写, harness 侧即无该绑定。
+            if search_key is not None:
+                cfg["key"] = search_key
             json.dump(cfg, f)
         with open(os.path.join(d, "harness.js"), "w", encoding="utf-8") as f:
             f.write(HARNESS)
@@ -479,7 +495,7 @@ def extract_js_lib(src):
 
 
 def check_source_file(node, source_path, fixture_html, url, initial_cookie, verification_code="",
-                      ajax_body=None, captcha_b64=None):
+                      ajax_body=None, captcha_b64=None, search_key="剑来"):
     try:
         with open(source_path, "r", encoding="utf-8") as f:
             payload = json.load(f)
@@ -527,6 +543,20 @@ def check_source_file(node, source_path, fixture_html, url, initial_cookie, veri
         head = where.rsplit("<js>", 1)[0]
         return head.rsplit("/", 1)[-1] if "/" in head else ""
 
+    def _is_search_scope(where):
+        """where 是否属于 searchUrl/exploreUrl 的顶层 URL 上下文(整串 <js> 或行内 js/webJs)。
+        where 形如 tag/searchUrl<js> / tag/exploreUrl.js / tag/name<js> /
+        tag/ruleSearch.bookUrl.js / tag/exploreUrl[0].ruleExplore.bookUrl.js。
+        只认「最后一段剥离 <js>/.js/.webJs 后精确等于 searchUrl|exploreUrl」——
+        rule 组嵌套、子规则、loginCheckJs、bookUrl/tocUrl 等一律不注入 key(真机同样无此绑定)。"""
+        last = where.rsplit("/", 1)[-1]
+        core = last.replace("<js>", "")
+        for suf in (".webJs", ".js"):
+            if core.endswith(suf):
+                core = core[: -len(suf)]
+                break
+        return core in ("searchUrl", "exploreUrl")
+
     ok_all = True
     for where, kind, code in items:
         prelude = prelude_by_tag.get(_tag_of(where) or "", "")
@@ -534,7 +564,8 @@ def check_source_file(node, source_path, fixture_html, url, initial_cookie, veri
         res = run_one(node, code, fixture_html, url, initial_cookie, kind=kind,
                       verification_code=verification_code,
                       ajax_body=ajax_body, captcha_b64=captcha_b64,
-                      prelude=prelude, result_raw=result_raw)
+                      prelude=prelude, result_raw=result_raw,
+                      search_key=search_key if _is_search_scope(where) else None)
         if not res.get("ok"):
             ok_all = False
             print("[FAIL] %s -> %s" % (where, res.get("error")))
@@ -872,6 +903,8 @@ def main():
     vcode = get_opt("--code")   # 注入 java.getVerificationCode() 桩的返回码(模拟用户输入的验证码)
     ajax_body = get_opt("--ajax-body")   # 注入 java.ajax() 桩的兜底返回体
     captcha_b64 = get_opt("--captcha-b64")   # 注入取码接口返回的 base64 图片内容
+    key_opt = get_opt("--key")           # 搜索上下文变量 key(仅 searchUrl/exploreUrl 作用域注入)
+    search_key = key_opt if key_opt is not None else "剑来"   # 与 verify_booksource 搜索词默认值对齐
     fixture = ABOUT_BLANK
     if html_path and os.path.isfile(html_path):
         with open(html_path, "r", encoding="utf-8", errors="replace") as f:
@@ -881,11 +914,12 @@ def main():
             print("找不到书源文件: %s" % source_path)
             sys.exit(2)
         ok = check_source_file(node, source_path, fixture, url, cookie, verification_code=vcode or "",
-                               ajax_body=ajax_body, captcha_b64=captcha_b64)
+                               ajax_body=ajax_body, captcha_b64=captcha_b64, search_key=search_key)
         sys.exit(0 if ok else 1)
     if inline_js is not None:
+        # inline 模式无法按 where 判作用域, 整段视为搜索上下文(用户显式传入的即是待测片段)
         res = run_one(node, inline_js, fixture, url, cookie, verification_code=vcode or "",
-                      ajax_body=ajax_body, captcha_b64=captcha_b64)
+                      ajax_body=ajax_body, captcha_b64=captcha_b64, search_key=search_key)
         print(json.dumps(res, ensure_ascii=False))
         sys.exit(0 if res.get("ok") else 1)
     print(__doc__.strip().splitlines()[0])
