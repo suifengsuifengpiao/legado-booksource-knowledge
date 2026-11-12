@@ -3,16 +3,25 @@
 """reverse_font.py — 字体反爬 & 正文加密 诊断与破解工具。
 
 ======================= 它能做什么 =======================
-1. 字体反爬(最常见的小说站加密):
+1. 字体反爬·站型 A【私有区码位重定向】(最常见):
    - 站点用自定义 web font, 把汉字映射到私有区编码(U+E000~F8FF), 抓到的 HTML 是"乱码字符"。
    - 本工具下载字体文件, 解析 cmap; 若字形名是标准的(uni4E00 / cidxxxx), 可【自动反推】
      "私有区编码 → 真实汉字" 映射, 直接生成书源 replaceRegex 片段, 一键落地!
    - 若字形名是随机名(glyph0001), 则标注"需人工对照", 输出私有区编码清单供比对。
-2. 正文内容加密: 检测正文是否 base64 / hex 编码, 给出 @js 解密骨架提示。
+2. 字体反爬·站型 B【CJK 基本区恒等 cmap + 字形轮廓替换】(v1.15.24 新增识别):
+   - cmap 里【没有】私有区码位, 码位与字形名 uniXXXX 恒等自洽, 混淆发生在 glyph 轮廓
+     重绘/重排；抓到的正文是"看得见却不认识"的汉字, 不是私有区乱码。
+   - 只认站型 A 的工具会把这类字体误报成"可能非加密字体"(假阴性)。本工具显式分型,
+     并如实给出 Legado 3.25 规则层能力边界: 该类【无法自动还原】, 不给假映射。
+   - 单份字体只判站型; "是否会话级动态字形"须另取多份同站字体比对轮廓集合, 不自动下结论。
+3. 正文内容加密: 检测正文是否 base64 / hex 编码, 给出 @js 解密骨架提示。
 ======================================================================
 
 用法:
   python3 reverse_font.py <页面URL 或 本地HTML文件> [--out report.json]
+  python3 reverse_font.py <本地字体文件 .woff2/.woff/.ttf/.otf> [--out report.json]
+    ^ SPA/JSON 接口站的字体不走 HTML @font-face(形如 font:{url:'/static/fonts/<hex>.woff2'}),
+      页面夹具里没有可提取的 @font-face —— 直接把字体文件本身作为分析对象。
 """
 import argparse
 import json
@@ -44,6 +53,95 @@ def infer_unicode_from_glyphname(glyphname):
     return None
 
 
+# ---- 站型判据（v1.15.24 新增）----
+# 只认「私有区码位重定向」会把另一类字体反爬判成「可能非加密字体」(假阴性)：
+# 站点把 cmap 做成 CJK 基本区恒等映射、把混淆放在 glyph 轮廓重绘/重排上，
+# 抓到的正文不是私有区乱码而是「看得见却不认识」的汉字。判据必须显式分型。
+CJK_UNIFIED_START = 0x4E00
+CJK_UNIFIED_END = 0x9FFF
+CJK_CMAP_MIN_ENTRIES = 2000          # CJK 常用字集量级阈值，低于此不认为是整套字表
+CJK_CMAP_MIN_RATIO = 0.90            # cmap 落在 CJK 基本区的比例下限
+IDENTITY_GLYPHNAME_MIN_RATIO = 0.90  # uniXXXX 与码位自洽的比例下限
+
+
+def read_font_format(path):
+    """读文件头 4 字节判字体容器格式；纯函数，不解析字体本体。"""
+    try:
+        with open(path, "rb") as fh:
+            magic = fh.read(4)
+    except OSError:
+        return {"format": "unknown", "magic": ""}
+    if magic == b"wOF2":
+        fmt = "woff2"
+    elif magic == b"\x00\x01\x00\x00":
+        fmt = "truetype"
+    elif magic == b"OTTO":
+        fmt = "cff/otf"
+    else:
+        fmt = "unknown"
+    return {"format": fmt, "magic": magic.hex()}
+
+
+def classify_font_obfuscation(bestcmap, font_path):
+    """确定性站型分型：纯函数，只吃 cmap 与文件头，不联网、不做语义猜测。
+
+    返回 {type, evidence, rule_layer_recoverable, note}。type 三态：
+      pua_codepoint_redirect   私有区码位重定向（既有分支，可自动反推 replaceRegex）
+      glyph_shape_cjk_identity CJK 基本区恒等 cmap + 字形轮廓替换
+      no_font_obfuscation      未检出上述两类特征（不等于「没有加密」）
+    """
+    total = len(bestcmap)
+    fmt = read_font_format(font_path)
+    priv = [c for c in bestcmap if (0xE000 <= c <= 0xF8FF) or c >= 0xF0000]
+
+    if priv:
+        return {
+            "type": "pua_codepoint_redirect",
+            "evidence": {"total_cmap": total, "private_count": len(priv), **fmt},
+            "rule_layer_recoverable": True,
+            "note": "私有区编码重定向：字形名为 uniXXXX 时可直接反推『私有区码位→真字』并生成 replaceRegex。",
+        }
+
+    cjk = [c for c in bestcmap if CJK_UNIFIED_START <= c <= CJK_UNIFIED_END]
+    identity_named = sum(
+        1 for code, gname in bestcmap.items()
+        if infer_unicode_from_glyphname(gname) == code
+    )
+    cjk_ratio = (len(cjk) / total) if total else 0.0
+    identity_ratio = (identity_named / total) if total else 0.0
+    evidence = {
+        "total_cmap": total,
+        "cjk_basic_ratio": round(cjk_ratio, 4),
+        "identity_glyphname_ratio": round(identity_ratio, 4),
+        **fmt,
+    }
+    if (total >= CJK_CMAP_MIN_ENTRIES
+            and cjk_ratio >= CJK_CMAP_MIN_RATIO
+            and identity_ratio >= IDENTITY_GLYPHNAME_MIN_RATIO):
+        return {
+            "type": "glyph_shape_cjk_identity",
+            "evidence": evidence,
+            "rule_layer_recoverable": False,
+            "note": (
+                "字形轮廓替换站型：cmap 是 CJK 基本区恒等映射，混淆发生在 glyph 轮廓重绘/重排，"
+                "不存在『私有区码位→真字』映射可反推。Legado 3.25 规则层三条独立限制"
+                "（依据：3.25 classes*.dex 内 QueryTTF 手写表目录解析 + fontTools 独立复算）："
+                "① 格式：QueryTTF 按标准 TTF 表目录(sfntVersion/numTables/cmap/loca/maxp/glyf)解析，"
+                "无 woff2 解码分支；② 匹配口径：glyphToUnicode 以轮廓坐标串做精确 HashMap 匹配，"
+                "无容差，轮廓重绘/量化即失配；③ 会话动态：字形集合可锚在会话级 guard cookie 上，"
+                "跨会话轮廓集合变化，固定字体表无法复用。"
+                "⇒ 规则层无法自动还原；现实出路是浏览器阅读 / 换源 / 会话级字体人工导入（目录名仍不可救）。"
+                "本判据只对单份字体判站型；『是否会话动态』须另取多份同站字体比对轮廓集合，本工具不自动下此结论。"
+            ),
+        }
+    return {
+        "type": "no_font_obfuscation",
+        "evidence": evidence,
+        "rule_layer_recoverable": None,
+        "note": "未检出私有区重定向或 CJK 恒等 cmap 字形替换特征；不排除其它加密形态，需结合正文响应另行取证。",
+    }
+
+
 def build_mapping(bestcmap):
     """bestcmap: {codepoint(int): glyphname(str)}。
     返回 (auto_map, manual_codes):
@@ -71,6 +169,7 @@ def analyze_font(path):
     bestcmap = f.getBestCmap() or {}
     auto_map, manual = build_mapping(bestcmap)
     priv = [c for c in bestcmap if (0xE000 <= c <= 0xF8FF) or c >= 0xF0000]
+    cls = classify_font_obfuscation(bestcmap, path)
     return {
         "path": path,
         "total_cmap": len(bestcmap),
@@ -79,6 +178,11 @@ def analyze_font(path):
         "auto_mapping_hex": {hex(c): hex(r) for c, r in auto_map.items()},
         "manual_codes": [hex(c) for c in manual],
         "fully_auto": bool(auto_map) and not manual,
+        # v1.15.24 新增：站型分型与规则层能力边界（原字段一个不动，保证改前/改后可 A/B）
+        "obfuscation_type": cls["type"],
+        "rule_layer_recoverable": cls["rule_layer_recoverable"],
+        "obfuscation_evidence": cls["evidence"],
+        "obfuscation_note": cls["note"],
     }
 
 
@@ -176,8 +280,21 @@ def extract_fonts(html, base, out_dir):
     return out
 
 
+FONT_FILE_SUFFIXES = (".woff2", ".woff", ".ttf", ".otf")
+
+
+def _is_font_file(p):
+    return isinstance(p, str) and p.lower().endswith(FONT_FILE_SUFFIXES)
+
+
 def diagnose(target, out=None):
-    if target.startswith("http://") or target.startswith("https://"):
+    local_font = _is_font_file(target)
+    if local_font:
+        # SPA/JSON 接口站的字体不走 HTML @font-face(形如 font:{url:'/static/fonts/<hex>.woff2'})，
+        # 页面夹具里没有可提取的 @font-face —— 直接把字体文件本身作为分析对象。
+        html = ""
+        base = ""
+    elif target.startswith("http://") or target.startswith("https://"):
         if not HAVE_REQUESTS:
             print("[错误] 需要 requests 才能抓取 URL"); sys.exit(2)
         r = requests.get(target, headers={"User-Agent": "Mozilla/5.0"}, timeout=20)
@@ -190,8 +307,8 @@ def diagnose(target, out=None):
         base = ""
 
     tmp = tempfile.mkdtemp(prefix="legado_font_")
-    print("[1/3] 提取并下载字体文件...")
-    fonts = extract_fonts(html, base, tmp)
+    print("[1/3] 直接分析本地字体文件..." if local_font else "[1/3] 提取并下载字体文件...")
+    fonts = [(target, target)] if local_font else extract_fonts(html, base, tmp)
     font_reports = []
     auto_maps = []
     for u, p in fonts:
@@ -209,10 +326,18 @@ def diagnose(target, out=None):
     print("[3/3] 生成诊断与书源落地模板...")
     items = generate_replace_regex(auto_maps) if auto_maps else []
     has_priv = any(fr.get("private_codepoints") for fr in font_reports if "private_codepoints" in fr)
+    # v1.15.24：显式识别「CJK 恒等 cmap + 字形轮廓替换」站型，不再落到
+    # 「未发现私有区编码(可能非加密字体)」——那句是本工具此前的假阴性结论。
+    shape_fonts = [fr for fr in font_reports
+                   if fr.get("obfuscation_type") == "glyph_shape_cjk_identity"]
+    unrecoverable = [fr for fr in font_reports if fr.get("rule_layer_recoverable") is False]
     if fonts and has_priv and items:
         verdict = "字体加密, 已自动反推映射, 可直接落地 replaceRegex"
     elif fonts and has_priv:
         verdict = "字体加密, 但字形名非标准, 需人工对照字形后补全映射"
+    elif fonts and shape_fonts:
+        verdict = ("字形轮廓替换站型(CJK 基本区恒等 cmap / 无私有区编码)："
+                   "Legado 3.25 规则层无法自动还原; 不生成假映射")
     elif fonts:
         verdict = "检测到自定义字体但未发现私有区编码(可能非加密字体)"
     else:
@@ -227,6 +352,8 @@ def diagnose(target, out=None):
         "auto_mapping_count": len(items),
         "replace_regex_items": items,
         "verdict": verdict,
+        "rule_layer_recoverable": (False if unrecoverable else None if not fonts else True),
+        "shape_font_count": len(shape_fonts),
     }
     if out:
         with open(out, "w", encoding="utf-8") as _f:
@@ -245,6 +372,11 @@ def _print_report(r):
             continue
         print("  [字体] %s" % os.path.basename(fr["path"]))
         print("        私有区编码: %s" % (", ".join(fr["private_codepoints"]) if fr["private_codepoints"] else "无"))
+        if fr.get("obfuscation_type"):
+            print("        站型: %s ｜ 规则层可自动还原: %s"
+                  % (fr["obfuscation_type"], fr.get("rule_layer_recoverable")))
+            print("        判据: %s" % json.dumps(fr.get("obfuscation_evidence"), ensure_ascii=False))
+            print("        说明: %s" % fr.get("obfuscation_note"))
         if fr.get("auto_mapping"):
             sample = list(fr["auto_mapping"].items())[:8]
             print("        自动反推(编码->汉字): %s" % ", ".join("%s->%s" % (k, v) for k, v in sample))

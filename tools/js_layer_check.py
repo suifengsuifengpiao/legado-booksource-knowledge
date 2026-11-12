@@ -148,6 +148,13 @@ function main() {
   //      (从宽点: prelude 在带完整绑件的 ctx 里执行, 真机 shareScope 是裸作用域, jsLib
   //      顶层引用 java/cookie 等绑定在真机反而会失败——harness 不建模这一层。)
   const ctx = { document, location, cookie, java, source, result, console };
+  // v1.15.24：顶层 loginCheckJs 真机绑定 result/cookie/baseUrl/java（见 extract_js_from_source
+  // 对 loginCheckJs 的注释）。此前 harness 未注入 baseUrl，对合法的 loginCheckJs 片段报
+  // "baseUrl is not defined"（假红）。仅该作用域注入，值取本次请求 URL；其它作用域不注入，
+  // 以免把「子规则误用 baseUrl」也放绿（反向标本仍须如实报错）。
+  if (cfg.kind === 'loginCheckJs') {
+    ctx.baseUrl = String(cfg.url || '');
+  }
   // 搜索上下文变量 key: 仅当调用方为「searchUrl/exploreUrl 作用域」片段注入 cfg.key 时才存在。
   // 真机子规则作用域没有 key —— 不注入时片段若误用 key 仍会 ReferenceError(如实暴露, 不假绿)。
   if (cfg.key !== undefined) {

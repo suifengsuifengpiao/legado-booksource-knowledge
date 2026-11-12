@@ -88,6 +88,44 @@
 | `queryBase64TTF(base64)` → `QueryTTF` | |
 | `replaceFont(内容, QueryTTF, QueryTTF[, boolean])` | 把混淆字形替换回真字符 |
 
+官方通道（3.25）：
+
+```javascript
+var f1 = java.queryBase64TTF(b64[1]);
+var f2 = java.queryTTF("https://.../Source Han Sans CN Regular.ttf");
+return java.replaceFont(result, f1, f2, true);
+```
+
+#### 1.5.1 能力边界（2026-11-13 补，原节只列 API、缺边界）
+
+> **证据等级（如实）**：本小节的「三条 `QueryTTF` 实现限制」来自 3.25 `classes*.dex` 反编译本体 + 抽取的 `QueryTTF.java` + fontTools 独立复算，判据标 **L1**；实站 `www.aaawz.cc` 的字体样本数字属「本地实测、样本未随包」（会话级 woff2 无法固化），**不包装成已交付证据**。`classify_font_obfuscation` 一类判据是启发式，只识别站型、不等于证明加密。完整标本与合成 cmap 独立复算见 `cases/标本_字体恒等cmap站型判非加密字体_假阴性.md`。
+
+**先分站型，再决定要不要在规则层继续投入**。两类站型成因完全不同：
+
+| | 站型 A · 私有区码位重定向 | 站型 B · CJK 恒等 cmap + 字形轮廓替换 |
+|---|---|---|
+| cmap 特征 | 含 `U+E000~F8FF` 或 `≥U+F0000` 私有区码位 | **无私有区**；码位集中 CJK 基本区，字形名 `uniXXXX` 与码位恒等自洽 |
+| 混淆发生在 | cmap 映射（码位 → 字形） | `glyf` 轮廓重绘 / 重排（码位本身没变） |
+| 抓到的正文 | 私有区乱码字符 | 正常汉字字形，但字形与 Unicode 不对应 |
+| 规则层能否还原 | 能：`replaceFont` 或 `replaceRegex` 反推映射 | **不能**（见下三条限制） |
+
+只认站型 A 的诊断会把站型 B 报成「可能非加密字体」（假阴性），是本轮工具侧修复的直接起因。
+
+**`QueryTTF` 的实现边界（3.25 反编译本体，三条互相独立）**：
+
+1. **格式**：构造函数按手写 TTF 表目录解析（`sfntVersion` / `numTables` / `cmap` / `loca` / `maxp` / `glyf`），**没有 woff2 解码分支**。dex 字符串池里的 `font/woff2` / `woff2` 位于 MIME / 邻近字符串，不是 `QueryTTF` 的解码路径；站点只发 `wOF2` 时须先由外部转成标准 TTF（`\x00\x01\x00\x00`）才可能进这条通道。
+2. **匹配口径**：`getGlyfById()` 把简单字形轮廓序列化成 `x,y|x,y` 坐标串；`glyphToUnicode` 是**精确 HashMap 匹配**（`glyphString → codepoint`），无容差、无相似度阈值。`replaceFont` 依赖「混淆字体的轮廓串」能在「正确字体」里找到**完全相等**的键；轮廓一旦重绘、重排或量化即失配。
+3. **会话动态**：字形集合可锚在会话级 guard cookie（如 `reader_guard_id`）上，每次会话下发不同字库；固定字体表无法跨会话复用，`queryTTF` 每次取到的都是当次会话那一份，正文与目录名共用同一套字形防护。
+
+> 任一成立即足以让「固定映射还原」失效；站型 B 通常三条同时成立。**规则层无解**，现实出路是浏览器阅读 / 换源 / 会话级字体人工导入（**目录名仍不可救**，因为目录名走同一套字形防护）。本结论**只针对用户 3.25 反编译**，不外推其它构建；对照用的 `Noto Sans CJK` 为 CFF/OTTO（无 `glyf` 表），与 `QueryTTF` 口径不同源，相关对照标「未实测/受限」。
+
+**写书源时的操作顺序**：
+
+1. 遇到「乱码 / 看不懂的汉字」→ 先取字体文件，跑 `reverse_font.py <字体文件>` 看 `obfuscation_type`；
+2. `pua_codepoint_redirect`（站型 A）→ 走本节既有 `replaceFont` / `replaceRegex` 通道；
+3. `glyph_shape_cjk_identity`（站型 B）→ **不要在规则层继续调 XPath、换字体 API 或截正则**；在书源 `bookSourceComment` 写明「规则层无法还原」，转浏览器阅读或换源；
+4. 单份字体只能判站型；要判「会话动态」须取多份同站字体按 `cases/标本_字体恒等cmap站型判非加密字体_假阴性.md` 的 fontTools 片段复算轮廓集合。
+
 ### 1.6 UI / 调试 / 其他
 
 | 方法 | 说明 |
