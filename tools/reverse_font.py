@@ -8,11 +8,15 @@
    - 本工具下载字体文件, 解析 cmap; 若字形名是标准的(uni4E00 / cidxxxx), 可【自动反推】
      "私有区编码 → 真实汉字" 映射, 直接生成书源 replaceRegex 片段, 一键落地!
    - 若字形名是随机名(glyph0001), 则标注"需人工对照", 输出私有区编码清单供比对。
-2. 字体反爬·站型 B【CJK 基本区恒等 cmap + 字形轮廓替换】(v1.15.24 新增识别):
+2. 字体反爬·站型 B【CJK 基本区恒等 cmap + 字形轮廓替换】(v1.15.24 新增识别,
+   v1.15.25 能力结论更正):
    - cmap 里【没有】私有区码位, 码位与字形名 uniXXXX 恒等自洽, 混淆发生在 glyph 轮廓
      重绘/重排；抓到的正文是"看得见却不认识"的汉字, 不是私有区乱码。
-   - 只认站型 A 的工具会把这类字体误报成"可能非加密字体"(假阴性)。本工具显式分型,
-     并如实给出 Legado 3.25 规则层能力边界: 该类【无法自动还原】, 不给假映射。
+   - 只认站型 A 的工具会把这类字体误报成"可能非加密字体"(假阴性)。本工具显式分型。
+   - 【v1.15.25 更正】字体文件的形态 ≠ 字符置换关系。站型 B 只说明"这份字体长什么样",
+     不能据此判定规则层能否还原：站点若把有限套固定字符置换表按 font.url 索引下发,
+     规则层用 jsLib 查表即可解码正文与目录。故本分支 rule_layer_recoverable 由 False
+     改为 None(未判定), 不给假映射, 也不再下"规则层无法还原"的禁令。
    - 单份字体只判站型; "是否会话级动态字形"须另取多份同站字体比对轮廓集合, 不自动下结论。
 3. 正文内容加密: 检测正文是否 base64 / hex 编码, 给出 @js 解密骨架提示。
 ======================================================================
@@ -89,6 +93,12 @@ def classify_font_obfuscation(bestcmap, font_path):
       pua_codepoint_redirect   私有区码位重定向（既有分支，可自动反推 replaceRegex）
       glyph_shape_cjk_identity CJK 基本区恒等 cmap + 字形轮廓替换
       no_font_obfuscation      未检出上述两类特征（不等于「没有加密」）
+
+    rule_layer_recoverable 三态（v1.15.25 更正语义）:
+      True  本工具已自动反推出可落地的映射（仅站型 A 且字形名标准时）
+      False 已由独立复算证实规则层不可还原（当前无分支返回此值）
+      None  未判定 —— 本工具只吃 cmap + 文件头, 判不了字符置换关系。
+            站型 B 与 no_font_obfuscation 一律 None, 不得据此下"无解"结论。
     """
     total = len(bestcmap)
     fmt = read_font_format(font_path)
@@ -121,16 +131,24 @@ def classify_font_obfuscation(bestcmap, font_path):
         return {
             "type": "glyph_shape_cjk_identity",
             "evidence": evidence,
-            "rule_layer_recoverable": False,
+            # v1.15.25: 由 False 改 None。False 是「已证实不可还原」的实证结论,
+            # 而本工具只看字体形态, 从未取证过字符置换关系, 没有资格下这个结论。
+            "rule_layer_recoverable": None,
             "note": (
                 "字形轮廓替换站型：cmap 是 CJK 基本区恒等映射，混淆发生在 glyph 轮廓重绘/重排，"
-                "不存在『私有区码位→真字』映射可反推。Legado 3.25 规则层三条独立限制"
-                "（依据：3.25 classes*.dex 内 QueryTTF 手写表目录解析 + fontTools 独立复算）："
-                "① 格式：QueryTTF 按标准 TTF 表目录(sfntVersion/numTables/cmap/loca/maxp/glyf)解析，"
-                "无 woff2 解码分支；② 匹配口径：glyphToUnicode 以轮廓坐标串做精确 HashMap 匹配，"
-                "无容差，轮廓重绘/量化即失配；③ 会话动态：字形集合可锚在会话级 guard cookie 上，"
-                "跨会话轮廓集合变化，固定字体表无法复用。"
-                "⇒ 规则层无法自动还原；现实出路是浏览器阅读 / 换源 / 会话级字体人工导入（目录名仍不可救）。"
+                "不存在『私有区码位→真字』映射可反推。"
+                "【v1.15.25 更正】此前本分支直接判 rule_layer_recoverable=False 并写"
+                "『规则层无法自动还原 / 目录名仍不可救』, 已证伪：那三条限制"
+                "（QueryTTF 无 woff2 解码分支 / glyphToUnicode 精确 HashMap 无容差 / 字形集合可随会话变）"
+                "只封闭了『java.queryTTF + java.replaceFont 字体 API』这一条通道, "
+                "并不封闭规则层的纯字符串置换解码通道 —— 后者完全不经过字体 API。"
+                "实站反证 www.aaawz.cc：站点下发有限 16 套固定字符置换表, "
+                "font.url 文件名前 12 位即表号; 规则层按表号查表可同时解码正文与目录名"
+                "（本地四通道独立复算: Python 换语言 / Node 原始 jsLib / Node 端到端 ruleContent / "
+                "Node 端到端 ruleToc; 实站夹具 1496 条目录全量解出、0 失败）。"
+                "【不得据本判据下无解结论】规则层能否还原, 须另查响应体: "
+                "① 正文/目录乱码是否来自有限套固定置换表; ② 表是否随响应下发或可按 font.url 索引; "
+                "③ 是否能在 jsLib 内置表并由规则层逐字查表解码。三条任一成立即可还原。"
                 "本判据只对单份字体判站型；『是否会话动态』须另取多份同站字体比对轮廓集合，本工具不自动下此结论。"
             ),
         }
@@ -178,7 +196,8 @@ def analyze_font(path):
         "auto_mapping_hex": {hex(c): hex(r) for c, r in auto_map.items()},
         "manual_codes": [hex(c) for c in manual],
         "fully_auto": bool(auto_map) and not manual,
-        # v1.15.24 新增：站型分型与规则层能力边界（原字段一个不动，保证改前/改后可 A/B）
+        # v1.15.24 新增：站型分型（原字段一个不动，保证改前/改后可 A/B）
+        # v1.15.25：能力字段为三态, None 表示未判定, 不再由站型直接推断
         "obfuscation_type": cls["type"],
         "rule_layer_recoverable": cls["rule_layer_recoverable"],
         "obfuscation_evidence": cls["evidence"],
@@ -328,6 +347,8 @@ def diagnose(target, out=None):
     has_priv = any(fr.get("private_codepoints") for fr in font_reports if "private_codepoints" in fr)
     # v1.15.24：显式识别「CJK 恒等 cmap + 字形轮廓替换」站型，不再落到
     # 「未发现私有区编码(可能非加密字体)」——那句是本工具此前的假阴性结论。
+    # v1.15.25：unrecoverable 只收「已独立证实不可还原」(False)；站型 B 现为 None,
+    # 不进此列, verdict 也不再写「规则层无法自动还原」。
     shape_fonts = [fr for fr in font_reports
                    if fr.get("obfuscation_type") == "glyph_shape_cjk_identity"]
     unrecoverable = [fr for fr in font_reports if fr.get("rule_layer_recoverable") is False]
@@ -337,7 +358,9 @@ def diagnose(target, out=None):
         verdict = "字体加密, 但字形名非标准, 需人工对照字形后补全映射"
     elif fonts and shape_fonts:
         verdict = ("字形轮廓替换站型(CJK 基本区恒等 cmap / 无私有区编码)："
-                   "Legado 3.25 规则层无法自动还原; 不生成假映射")
+                   "字体 API 通道不适用, 但规则层能力【未判定】; "
+                   "须另查响应体有无可按 font.url 索引的有限置换表(见 obfuscation_note); "
+                   "不生成假映射, 也不下无解结论")
     elif fonts:
         verdict = "检测到自定义字体但未发现私有区编码(可能非加密字体)"
     else:
@@ -352,7 +375,13 @@ def diagnose(target, out=None):
         "auto_mapping_count": len(items),
         "replace_regex_items": items,
         "verdict": verdict,
-        "rule_layer_recoverable": (False if unrecoverable else None if not fonts else True),
+        # v1.15.25 三态透传：旧写法 `False if unrecoverable else ... else True`
+        # 会把站型 B 的 None 错报成 True(假绿)。现在只有真的反推出映射才给 True。
+        "rule_layer_recoverable": (
+            False if unrecoverable
+            else True if items
+            else None
+        ),
         "shape_font_count": len(shape_fonts),
     }
     if out:
@@ -373,8 +402,10 @@ def _print_report(r):
         print("  [字体] %s" % os.path.basename(fr["path"]))
         print("        私有区编码: %s" % (", ".join(fr["private_codepoints"]) if fr["private_codepoints"] else "无"))
         if fr.get("obfuscation_type"):
-            print("        站型: %s ｜ 规则层可自动还原: %s"
-                  % (fr["obfuscation_type"], fr.get("rule_layer_recoverable")))
+            _rl = fr.get("rule_layer_recoverable")
+            _rl_txt = {True: "可自动反推", False: "已证实不可还原", None: "未判定(须另取证)"}.get(_rl, str(_rl))
+            print("        站型: %s ｜ 规则层能力: %s"
+                  % (fr["obfuscation_type"], _rl_txt))
             print("        判据: %s" % json.dumps(fr.get("obfuscation_evidence"), ensure_ascii=False))
             print("        说明: %s" % fr.get("obfuscation_note"))
         if fr.get("auto_mapping"):

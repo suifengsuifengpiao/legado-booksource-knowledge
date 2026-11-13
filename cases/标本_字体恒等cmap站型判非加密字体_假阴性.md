@@ -1,8 +1,9 @@
 # 标本：CJK 恒等 cmap 字体站型被判成「可能非加密字体」（假阴性）
 
-> 归档：2026-11-13，随技能 v1.15.24 并入。
+> 归档：2026-11-13，随技能 v1.15.24 并入；**2026-11-13 勘误订正**（对应技能 v1.15.25）。
 > 来源：书源侧排查 `www.aaawz.cc` 目录/正文「看得见却不认识」乱码时的实测（信件 `致引擎侧_v1.15.24_字体站型分型与三处判定失真修复_20261112.md`）。
-> **证据等级（如实）**：本标本的实站字体样本、A/B 夹具、跨会话轮廓比对数字均**未随包**（会话级 woff2 无法固化，存书源侧会话沙箱 `/root/.codebuddy/backup_20261112_tools_v11524/`），引擎侧**未独立复现**。引擎侧独立验到的只有一层：`classify_font_obfuscation` 纯函数用**合成 cmap** 复算的六组真值表 6/6（纯逻辑自洽，不涉及实站样本）。不得把下面的数字当作引擎侧已交付证据。
+> **⚠️ 勘误（v1.15.25，2026-11-13）**：本标本原含「规则层无法还原 / 目录名仍不可救 / `rule_layer_recoverable=False`」等结论，已被书源侧**四条独立通道复算证伪**（站点实为有限 16 套固定字符置换表、`aaDecode(font.url, text)` 规则层可同时解码正文与目录名）；`False` 已更正为 `None`（未判定）。**标本记录的「假阴性」修复本身仍然有效，标本不删**，只订正上述已证伪的能力结论。勘误后的完整能力边界见 `references-extra/Legado_3.25_书源编写参考.md` §1.5.1、勘误文档 `cases/字体站型勘误留痕_20261113/`。
+> **证据等级（如实）**：本标本的实站字体样本、A/B 夹具、跨会话轮廓比对数字均**未随包**（会话级 woff2 无法固化，存书源侧会话沙箱 `/root/.codebuddy/backup_20261112_tools_v11524/`），引擎侧**未独立复现**。引擎侧独立验到的只有一层：`classify_font_obfuscation` 纯函数用**合成 cmap** 复算的六组真值表 6/6（纯逻辑自洽，不涉及实站样本）；v1.15.25 三态复算 6/6（站型 B 由 `False` 改 `None`）。不得把下面的数字当作引擎侧已交付证据。
 
 ## 一、症状（病在工具，不在书源）
 
@@ -13,7 +14,8 @@
 | cmap 特征 | 含 `U+E000~F8FF` 或 `≥U+F0000` 私有区码位 | **无私有区**；码位集中 CJK 基本区，字形名 `uniXXXX` 与码位恒等自洽 |
 | 混淆发生在 | cmap 映射（码位 → 字形） | `glyf` 轮廓重绘 / 重排（码位本身没变） |
 | 抓到的正文 | 私有区乱码字符 | 正常汉字字形，但字与 Unicode 不对应 |
-| 规则层能否还原 | 能：`replaceFont` / `replaceRegex` 反推映射 | **不能**（3.25 `QueryTTF` 三条独立限制，见下） |
+| 字体 API 通道 | 能：`replaceFont` / `replaceRegex` 反推映射 | **不适用**（3.25 `QueryTTF` 三条限制只封闭这条通道） |
+| 规则层能否还原 | 通常能 | **未判定，与站型无关**（v1.15.25 勘误；11-12 初版误判「不能」已证伪，见 §二末） |
 
 `reverse_font.py`（v1.15.23 及更早）只认站型 A：对该站字体返回 `private_codepoints: []`、无任何站型字段，`diagnose()` 报「检测到自定义字体但未发现私有区编码（可能非加密字体）」——把**真加密**判成「可能没加密」，是假阴性。误导方向是让人继续在规则层调 XPath / 换字体 API / 截正则，白费工。
 
@@ -25,15 +27,17 @@
 2. **匹配口径**：`getGlyfById()` 把简单字形轮廓序列化成 `x,y|x,y` 坐标串；`glyphToUnicode` 是**精确 HashMap 匹配**（`glyphString → codepoint`），无容差、无相似度阈值。轮廓一旦重绘 / 重排 / 量化即失配。
 3. **会话动态**：字形集合可锚在会话级 guard cookie（如 `reader_guard_id`）上，每次会话下发不同字库；固定字体表无法跨会话复用，正文与目录名共用同一套字形防护。
 
-> 三条互相独立，任一成立即足以让「固定映射还原」失效；站型 B 通常三条同时成立。**规则层无解**，现实出路是浏览器阅读 / 换源 / 会话级字体人工导入（目录名仍不可救）。
+> 三条互相独立，任一成立即足以让**字体 API 通道**的「固定映射还原」失效；站型 B 通常三条同时成立。**但已勘误（v1.15.25）：这三条只封闭 `java.queryTTF` + `java.replaceFont` 这条字体 API 通道，不封闭规则层的纯字符串置换解码通道**。11-12 初版据此下的「规则层无解 / 目录名仍不可救」结论已被四条独立通道复算证伪（实站 `www.aaawz.cc` 用有限 16 套固定字符置换表，`aaDecode(font.url, text)` 规则层可同时解码正文与目录名）。判据本身仍有效，**结论层已作废**，详见 §1.5.1 勘误版。
 
 ## 三、修法（v1.15.24，只改判据不动既有分支）
 
 新增 `classify_font_obfuscation(bestcmap, font_path)` 确定性纯函数，按四个量分三态：
 
 - `pua_codepoint_redirect`：cmap 含私有区码位 → 既有分支，`rule_layer_recoverable=True`，可自动反推 `replaceRegex`；
-- `glyph_shape_cjk_identity`：无私有区，且 `total≥2000` / CJK 基本区比例 `≥0.90` / `uniXXXX` 自洽比例 `≥0.90` → `rule_layer_recoverable=False`、**不生成假映射**、verdict 明写「规则层无法自动还原」；
-- `no_font_obfuscation`：未检出上述两类特征（**不等于「没有加密」**）。
+- `glyph_shape_cjk_identity`：无私有区，且 `total≥2000` / CJK 基本区比例 `≥0.90` / `uniXXXX` 自洽比例 `≥0.90` → **v1.15.24 时为 `rule_layer_recoverable=False`、verdict「规则层无法自动还原」；v1.15.25 勘误改为 `None`（未判定）**、始终**不生成假映射**、verdict 改为「字体 API 通道不适用，规则层能力未判定，须另查有限置换表」；
+- `no_font_obfuscation`：未检出上述两类特征（**不等于「没有加密」**），`rule_layer_recoverable=None`。
+
+> 三态语义（v1.15.25 更正）：`True`=已自动反推出可落地映射（仅站型 A）/ `False`=已由独立复算证实不可还原（**当前无分支返回此值**）/ `None`=未判定。站型三态判据、`FONT_RE`、`build_mapping`、`generate_replace_regex` 一行未改。
 
 `analyze_font()` 追加 4 个字段、原字段一个不动；新增本地字体文件直通（`.woff2/.woff/.ttf/.otf`），覆盖 SPA/JSON 接口站 `font:{url:'/static/fonts/<hex>.woff2'}` 这类 HTML 里没有 `@font-face` 的形态。`FONT_RE` / `build_mapping` / `generate_replace_regex` 一行未改。
 
@@ -44,7 +48,7 @@
 | 组 | 输入 | 期望 | 实测 |
 |---|---|---|---|
 | 站型 A | 私有区码位 + `uniXXXX` | `pua_codepoint_redirect` | PASS |
-| 站型 B | CJK 基本区恒等 cmap（6763 条自洽） | `glyph_shape_cjk_identity` | PASS（`cjk_ratio=1.0` / `identity_ratio=1.0` / `recoverable=False`） |
+| 站型 B | CJK 基本区恒等 cmap（6763 条自洽） | `glyph_shape_cjk_identity` | PASS（`cjk_ratio=1.0` / `identity_ratio=1.0` / `recoverable` v1.15.24=`False` → v1.15.25 勘误=`None`） |
 | 普通 | 无混淆特征 | `no_font_obfuscation` | PASS |
 | 反例① | 小字表（<2000 条） | 不误判站型 B | PASS |
 | 反例② | 随机字形名（不自洽） | 不误判站型 B | PASS |
@@ -56,8 +60,9 @@
 
 1. 遇到「乱码 / 看不懂的汉字」→ 先取字体文件，跑 `reverse_font.py <字体文件>` 看 `obfuscation_type`。
 2. `pua_codepoint_redirect` → 走 §1.5 既有 `replaceFont` / `replaceRegex` 通道。
-3. `glyph_shape_cjk_identity` → **不要在规则层继续调 XPath、换字体 API 或截正则**；在书源 `bookSourceComment` 写明「规则层无法还原」，转浏览器阅读或换源。
-4. 单份字体只能判站型；要判「会话动态」须取多份同站字体按字体站型文档 §4 的 fontTools 自包含片段复算轮廓集合。
+3. `glyph_shape_cjk_identity` → **不要在字体 API 通道继续调 XPath、换字体 API 或截正则**；但（v1.15.25 勘误）**不要据此写「规则层无法还原」或放弃目录**，转第 4 步；
+4. **另查字符置换通道**（含目录名）：正文/目录乱码是否来自有限套固定置换表、表可否按 `font.url` 索引、能否在 `jsLib` 内置表由 `<js>` 规则逐字查表解码——三条任一成立即可在规则层还原；确无映射线索时才写「本规则层无法还原」，且须注明是「此站此通道取证后」的结论、不是站型推论。详见 `references-extra/Legado_3.25_书源编写参考.md` §1.5.1 勘误版。
+5. 单份字体只能判站型；要判「会话动态」须取多份同站字体按字体站型文档 §4.4 的 fontTools 自包含片段复算轮廓集合。
 
 ## 六、与假绿标本的对照
 

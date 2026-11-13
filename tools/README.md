@@ -1,10 +1,10 @@
-# Legado 书源工具链（legado-booksource-debug 技能 v1.15.24）
+# Legado 书源工具链（legado-booksource-debug 技能 v1.15.25）
 
 本地化校验与真机语义对齐工具集。核心原则：**本地不建模的语义如实降级为「需真机验证」，绝不跑出与真机不符的假结果**。
 
-> **同步状态（2026-11-13）**：本目录 17 个脚本已与技能 `scripts/` **逐文件 md5 一致**（对应技能 v1.15.24），`md5_sync_check.py` 门禁 `一致 17 / 漂移 0 / exit=0`；`--run-evals` 真实平铺复跑 `PASS 94 / FAIL 2（豁免 2）exit=0`。
-> 本轮（v1.15.24）同步三处：`reverse_font.py`（新增 `classify_font_obfuscation` 确定性纯函数，按私有区码位 / CJK 基本区恒等 cmap 比例 / `uniXXXX` 自洽 / 字表量级分三态，并加本地字体文件直通 `.woff2/.woff/.ttf/.otf`，消「CJK 恒等 cmap + 字形轮廓替换」站型被判成「可能非加密字体」的假阴性）/ `js_layer_check.py`（仅 `loginCheckJs` 作用域向 harness `ctx` 注入 `baseUrl`，消合法片段 `baseUrl is not defined` 假红）/ `check_request_layer.py`（仅 docstring 版本号 1.15.23→1.15.24）。**书源侧来件 §三称「仅 3 个文件变大」，以已发布 v1.15.23 包为基准实测是 5 个共有文件变化 + 1 新增**（`RELEASE_NOTES_v1.15.24.md`），漏算 `_meta.json`/`SKILL.md` 两个版本四处同步项——仍是「只数功能文件」的老口径。
-> 历史追平脉络：v1.15.16–v1.15.19 请求层闸修复（R2 分隔符 / R5 剥锚点与 host / 选项段 gson lenient / `<js>` 短路 / 类型守卫）、`check_version_sync` 非技能包 exit=1 与 `display_name` 版本比对、`validate_booksource` 类型守卫前置、v1.15.20 四项解析层修复（`ruleExplore` 空对象回退 `ruleSearch` / 列表链接 `//x`→`.//x` / JSOUP 求值兜底 / `@CSS:` 大小写不敏感）、v1.15.21 平铺布局兼容、v1.15.22 `##` 切段 dex 落盘、v1.15.23 判定层三处失真修复（verify 四态 / `--key` 桩 / self_audit 判据收窄）。**旧版会误判正常书源**，已全部替换。
+> **同步状态（2026-11-13）**：本目录 17 个脚本已与技能 `scripts/` **逐文件 md5 一致**（对应技能 v1.15.25），`md5_sync_check.py` 门禁 `一致 17 / 漂移 0 / exit=0`；`--run-evals` 真实平铺复跑 `PASS 94 / FAIL 2（豁免 2）exit=0`。
+> 本轮（v1.15.25，**字体结论勘误版**）同步两处：`reverse_font.py`（**只更正结论层**——站型 B 的 `rule_layer_recoverable` 由 `False` 改 `None`「未判定」、verdict 删「规则层无法自动还原 / 目录名仍不可救」改为「须另查响应体有无可按 `font.url` 索引的有限置换表」、连带修掉顶层汇总旧写法把 `None` 假绿成 `True` 的缺陷；站型三态判据 / `FONT_RE` / `build_mapping` / `generate_replace_regex` 一行未动，不新增置换表检测、不生成假映射）/ `check_request_layer.py`（仅 docstring 版本号 1.15.24→1.15.25）。**`js_layer_check.py` 本轮未改、不需同步**（两版逐字节相同）。勘误起因：v1.15.24「会话级无限动态字形 / 规则层无法还原 / 目录名仍不可救」三层结论被四条独立通道复算证伪，实站 `www.aaawz.cc` 用有限 16 套固定字符置换表、`aaDecode(font.url, 文本)` 规则层可直接解码正文与目录（详见 `references-extra/Legado_3.25_书源编写参考.md` §1.5.1 勘误版）。
+> 历史追平脉络：v1.15.16–v1.15.19 请求层闸修复（R2 分隔符 / R5 剥锚点与 host / 选项段 gson lenient / `<js>` 短路 / 类型守卫）、`check_version_sync` 非技能包 exit=1 与 `display_name` 版本比对、`validate_booksource` 类型守卫前置、v1.15.20 四项解析层修复（`ruleExplore` 空对象回退 `ruleSearch` / 列表链接 `//x`→`.//x` / JSOUP 求值兜底 / `@CSS:` 大小写不敏感）、v1.15.21 平铺布局兼容、v1.15.22 `##` 切段 dex 落盘、v1.15.23 判定层三处失真修复（verify 四态 / `--key` 桩 / self_audit 判据收窄）、v1.15.24 字体站型分型与判定层修复。**旧版会误判正常书源**，已全部替换。
 > 注意：本目录脚本平铺在根目录（非 `scripts/` 子目录）。v1.15.21 起 `evals/run_evals.py` 已支持平铺定位，可在本目录原地跑，结果为 **94/96**——差的 2 条恒为 `self_audit`（检的是技能包自身结构，本目录没有 `references/` 文档树）。技能包内跑仍是 **96/96**。
 > **防复发门禁**：`python3 tools/md5_sync_check.py <技能包目录> [--run-evals]`
 > - 只比 md5：一致 `exit=0`、漂移或缺失 `exit=1`、路径错 `exit=2`
@@ -14,7 +14,7 @@
 > - 下次升级技能后先跑这条，再谈别的。
 > 另：`lint/booksource_lint.py`（知识库侧 lint 工具，非技能脚本）含 `strip_url_options()`。
 >
-> **最新技能包（v1.15.24）**：`https://gitee.com/z157001/legado-booksource-knowledge/releases/download/v1.15.24/legado-booksource-debug_v1.15.24.skill`（解压即用，内含 `scripts/` 与本目录同名同 md5 的 17 个脚本）。
+> **最新技能包（v1.15.25）**：`https://gitee.com/z157001/legado-booksource-knowledge/releases/download/v1.15.25/legado-booksource-debug_v1.15.25.skill`（解压即用，内含 `scripts/` 与本目录同名同 md5 的 17 个脚本）。
 > **历史独立包**：`releases/legado-tools_v1.14.10.zip`（2.5MB，解压即用，不需要装技能；**不含 b2**）——已过期，仅存档。
 > B2 真机引擎单独发包：`legado-tools-b2-runtime_v1.14.10.zip`（27MB，含 APK 转出的 4 个 jar + enjarify 修复包 + 已编译 harness，解压即跑）。
 > 下载走 Release 附件（raw 对 >20MB 文件返回 403）：https://gitee.com/z157001/legado-booksource-knowledge/releases/download/v1.14.10-b2.5/legado-tools-b2-runtime_v1.14.10.zip
@@ -38,7 +38,7 @@
 | `js_layer_check.py` | `<js>` 规则 Node 层执行检查；**列表 `<js>` 返回数组类型闸门**（末段纯 `<js>` 返非数组真机 ClassCastException，链式形态 `<js>…</js>选择器` 不适用）；jsLib 共享作用域建模。**v1.15.23 起注入 `--key` 桩通道**：仅顶层 `searchUrl`/`exploreUrl` 作用域注入搜索上下文变量 `key`（子规则片段不注入、真机无此绑定），消除合法 `searchUrl <js>` 的 `key is not defined` 假红；**v1.15.24 起仅 `loginCheckJs` 作用域注入 `baseUrl`**（取 `cfg.url`），消除合法登录检查片段引用真机绑定的假红，其它作用域不注入防外溢 |
 | `validate_booksource.py` 补充 | 检查 #12「末段纯 `<js>` 列表 + 纯选择器子规则」WARN（真机不解析字符串元素）；空输入口径：0 字节/纯空白文件 exit 2 报错（不静默放行），`[]` 放行 |
 | `reverse_crypto.py` | 加密参数逆向 |
-| `reverse_font.py` | 字体反爬(QueryTTF)还原。**v1.15.24 起新增 `classify_font_obfuscation(bestcmap, font_path)` 三态分型**（`pua_codepoint_redirect` / `glyph_shape_cjk_identity` / `no_font_obfuscation`）+ 本地字体文件直通通道（`.woff2/.woff/.ttf/.otf`）；站型 B「CJK 基本区恒等 cmap + 会话级字形轮廓替换」明确 `rule_layer_recoverable=False` 且不生成假映射，不再误报「可能非加密字体」。`FONT_RE`/`build_mapping`/`generate_replace_regex` 未改 |
+| `reverse_font.py` | 字体反爬(QueryTTF)还原。**v1.15.24 起新增 `classify_font_obfuscation(bestcmap, font_path)` 三态分型**（`pua_codepoint_redirect` / `glyph_shape_cjk_identity` / `no_font_obfuscation`）+ 本地字体文件直通通道（`.woff2/.woff/.ttf/.otf`），消站型 B 被判成「可能非加密字体」的假阴性。**v1.15.25 勘误**：站型 B 的 `rule_layer_recoverable` 由 `False` 改 **`None`（未判定）**、不生成假映射、不下「规则层无法还原」结论——字体文件形态 ≠ 字符置换关系，规则层能否还原须另查响应体有无可按 `font.url` 索引的有限置换表（含目录名）；三态语义 `True`=已反推出可落地映射（仅站型 A）/ `False`=已由独立复算证实不可还原（当前无分支返回）/ `None`=未判定。站型三态判据 / `FONT_RE` / `build_mapping` / `generate_replace_regex` 一行未改 |
 | `fetch_page.py` | 页面抓取（UA/编码/重定向处理） |
 | `l0_probe.py` | L0 证伪探针：窄范围快速验证假设 |
 | `make_probe_source.py` | 生成诊断探针书源 JSON（用户没电脑也能定位问题） |
