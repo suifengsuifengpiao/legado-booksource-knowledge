@@ -73,11 +73,19 @@
 - **POST body 里的关键词不要预编码**：App 发送请求体时会**再做一次 form 编码**，JS 里预先 `encodeURIComponent` = 双重编码 → 服务端查无此书，表现为 `code=0` 但 `search` 数组为空。
 - **配套检测**：`validate_booksource.py` 对这两类形态分别出 ERROR（整体对象）与 WARN（body 预编码），回归用例 `bad-searchurl-js-return-json-object` / `bad-searchurl-js-body-preencoded` / `good-searchurl-js-url-combo` 三对正反标本固化。
 
-## 七、与本技能的对应关系
+## 七、bookSourceType 合法值全集 0/1/2/3（dex 三证据链）
+
+- **`res/values/arrays.xml`**：`book_type` 数组 = `Text` / `Audio` / `Image` / `File` **四项**——编辑页书源类型 spinner 的数据源即此表，四项全合法。
+- **`BookSourceEditActivity.smali:655-676`**：type 0/1/2/3 分别映射 spinner 位置 0/1/2/3，**type=3 有独立分支**（非 default 兜底），坐实"文件"是独立类型而非非法值。
+- **`references/booksource-schema.md:43`**：文档原文"0 文本 / 1 音频 / 2 图片 / 3 文件"——文档一直是对的。
+- 结论：合法值为 **0(文本)/1(音频)/2(图片)/3(文件)**，缺一即漏。`validate_booksource.py` 的 bookSourceType 校验按此全集执行，evals 用例 `good-booksourcetype-file-3`（合法不得报）+ `bad-booksourcetype-illegal-value`（4 才报）双向固化。
+- 🚨 踩坑记录：v1.14.1 曾按"只有 0/1/2"校验，把合法的文件类书源误报"不是合法值"——**护栏制造 bug**。当时依据是记忆而非 dex；以本条实证为准，再改此段时勿把 3 收回去。
+
+## 八、与本技能的对应关系
 
 - ✅ 版本锁定 3.25（用户 APK 即此版本，基准一致）。
 - ✅ 等待字段只认 `webWait`（`webViewDelayTime` 在 dex 中 0 次，**实证**为死字段）。
 - ✅ `enabledCookieJar` / `loginCheckJs` 均真实存在且被高频引用。
-- ✅ 净化走 `content` 行内 `##正则##替换##`；`ruleContent.replaceRegex` 为死字段（help 文档未给 replaceRegex 任何消费说明）。
+- ✅ 净化走 `content` 行内 `##正则##替换##`；**`ruleContent.replaceRegex` 有消费点**（`webBook.w.b` → `AnalyzeRule.getString`），但**官方 help 未记载**（16 篇 help md 全文 0 命中）—— 文档沉默 ≠ 代码不消费；写法必须以 `##` 开头。
 - ✅ JS API 签名（`post` 三参、`connect`/`ajax` 单参、重定向 `java.connect/...header("Location")`）与 jsHelp.md 完全对齐。
 - ✅ 校验不可靠的论断被 `SourceMBookHelp` + `appHelp` 双重证实。

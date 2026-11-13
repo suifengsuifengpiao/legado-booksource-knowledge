@@ -92,6 +92,14 @@
 
 阅读顺序建议：`LEGADO-书源调试知识库.md`（索引）→ `解析要点-核心引擎行为与实战坑点.md`（引擎行为）→ `cases/Legado_书源排错与实战经验_多站案例集.md`（排错实战）→ `tools/README.md`（要动手时）。
 
+## 2026-11-13 维护（非发版：4 份同名文档合并 + 推送前门禁启用）
+
+> 本轮为知识库维护，**不发新技能包、不改技能包内容**，故不占 ⑱〜㉕ 技能包编号；版本线仍为 v1.15.25。
+
+- **`references-extra/` 4 份同名内容更新逐份合并**（v1.15.24 补充材料遗留待办）。核实材料版 4 份 = v1.15.25 已发布技能包 `references/` 正式版（md5 逐一相同），知识库旧版为 10-24 副本、其独有行经逐条判定全部为 v1.15.20 起已被 dex 物证（`evidence/AnalyzeRule-SourceRule.java`，`webBook.w.b` → `AnalyzeRule.getString`，`makeUpRule` 按 `##` 切段）证伪的「`ruleContent.replaceRegex` 是死字段」旧结论——与同目录 v1.15.24 已并入的 `field-availability.md`／`workflow-detail.md`「生效、须 `##` 开头」自相矛盾。① 前 3 份（`apk-3.25-verified-facts.md`／`booksource-schema.md`／`parse-paths.md`）以发布版覆盖，逐字节=发布版=技能包；带来订正 + 新增（bookSourceType 合法值 0/1/2/3 dex 三证据链、`?=` 幻影操作符、`@html`/`@all` 语义、`##` dex 证据引用）。② `pitfalls.md` 以发布版全文为基底（铁律 5/10 订正、铁律 27 `@html` 删 script、N11~N13 升铁律 28/29/30），把知识库独有的 **N1~N9（2026-10-24 档案蒸馏，20 天 17 站实战）、N10 完整档案、未升规则观察表**整段补录为附录，**逐字节不动、编号沿用原档、不与正文铁律序列混编**。合并后正文 641 行逐字节=发布版、附录三段逐字节=知识库原文、26 个代码块围栏成对闭合、4 份口径统一为「`replaceRegex` 生效、须 `##` 开头」。改前 4 份已备份 `/workspace/backup_references-extra_同名4份_20261113_114540`。
+- **推送前脱敏门禁 `precheck_public_push.sh` 启用**（v1.15.24 补充材料遗留待办，归档时仅静态审查未执行）。引擎侧运行件装到 `/root/.codebuddy/scripts/precheck_public_push.sh`，知识库 `tools/` 归档件为判据基准，二者差异面仅 4 处最小适配：① 凭据改为从 `~/.git-credentials`（URL 形态）解析 token 段 + 整行 URL 两类敏感串，**不新建明文令牌文件、不回显**；② 凭据源读不到判失败、不静默跳过（修掉归档件 `TOKEN_FILE` 不存在导致「跳过第 1 项」的假阴性）；③ 第 1/6a 项改为遍历敏感串数组；④ 归档件注释里的真实会话 UUID 前缀（`<会话UUID前8位>` 示意占位）示意化（否则门禁扫本库会命中脚本自身、恒假红）。`bash -n` 通过、静态审查无联网/执行/外发；**9 场景实测全过**（干净 exit=0 且第 1 项显示 2 个敏感串、令牌平铺/包内/整行 URL/凭证/hostname/UUID 六类各 exit=1、用法错误 exit=2、凭据源缺失判失败不静默放行）+ 扫两个公开库与技能包解包目录均 exit=0。**不挂 git hook、不改既有推送机制**，按「每次公开仓 push 前显式调用」的纪律使用，删运行件即回滚。详见 `tools/precheck_public_push.说明.md`。
+- 仍未办：GitHub 镜像旧令牌过期（用户明确暂不管）、`references_同名内容更新/` 差集台账请书源侧据此销项。
+
 ## 来源与版权
 
 - 官方帮助文档: Legado(gedoor/legado) APK 3.25 内置 assets, 版权归原项目及作者

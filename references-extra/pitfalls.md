@@ -25,7 +25,7 @@
 | ① | 真实响应是不是被 CF / cookie 拦截的挖空页？ | 带 / 不带 cookie 各抓一次正文页对比 | 不带 cookie 即挖空 → `enabledCookieJar:true` + 先过一次 CF 落 cookie（WebView 或 bypass_cf）；**非 WebView 解析** |
 | ② | 是不是静态 HTML 里就有正文、只是规则 XPath 没命？ | 把真实响应（带 cookie）存成样本，用 `test_parse.py` 验 XPath | 命中失败 → 修 XPath / CSS / Regex；**别上 WebView** |
 | ③ | 是不是真 JS 渲染（无 JS 执行 DOM 就空）？ | 直连 HTML 正文容器空、浏览器渲染后才有 | 上 `chapterUrl` 内联 `webView:true` + `webWait` ≥ 8000（AES 解密站） |
-| ④ | 是不是 `content` 规则本身把正文滤掉了？ | 检查 content 的 JS 过滤黑名单 / `replaceRegex` | 放宽过滤；注意本 App `ruleContent.replaceRegex` 是死字段（见铁律 5），净化写进 content 的 JS |
+| ④ | 是不是 `content` 规则本身把正文滤掉了？ | 检查 content 的 JS 过滤黑名单 / 行内 `##` / `ruleContent.replaceRegex`（**必须以 `##` 开头**，见铁律 5） | 放宽过滤；净化首选 content 的 `<js>` 或行内 `##`，`ruleContent.replaceRegex` 须 `##` 开头 |
 
 > **优先级铁律**：①（cookie / CF）永远先于 ③（JS 渲染）。绝大多数"源码有明文但取空"其实是 ①，不是 ③。本技能过去的"JS 渲染站"章节把 ③ 当默认路径，是这次误判的根源，已改为以 ① 为优先。
 
@@ -52,14 +52,27 @@
 - **铁律 4：webView 模式下 `src` = 渲染后 `outerHTML`，不是静态响应**
   - `evalJS` 绑定 `scriptBindings.set("src", this.content)`，webView 模式 content 就是 `document.documentElement.outerHTML`（JS 执行后 DOM）。
   - 因此纯 JS 正则兜底**同样依赖 webWait 足够**；先保证 webWait，再谈 `src` 提取。
-- **铁律 5：`ruleContent.replaceRegex` 在 3.25 定制版 APK 是死字段（反编译实锤）**：写在 `ruleContent` 里的 `replaceRegex` 全代码库零消费点，正文净化写不进去，必须写进 content 的 `<js>`。
-  - 3.25 定制版：全代码库检索，`ContentRule.getReplaceRegex` 除实体定义/编辑界面/相等比较外**零消费点**——写在这里的净化正则**不执行**。
-    净化的可靠位置是 **content 规则的 JS 内**或规则内联 `##`。
-  - **口径**：别的 Legado 版本里 `replaceRegex` 可能生效（执行点排在格式化之后、作用对象是纯文本），
-    但本技能**只以用户提供的 3.25 反编译为准、不引用官方仓库**（见 SKILL.md「绝不下载官方源码」）。
-    在 3.25 上它就是死的 —— 别把净化写进去赌别的版本。
-  - **结论**：删 HTML 节点一律写 `content` 的行内 `##`；**要删纯文字也写行内 `##`**（对已抽取的文本同样生效），
-    不要依赖 `replaceRegex`。
+- **铁律 5：`ruleContent.replaceRegex` 在 3.25 是活字段，但它不是"正则字符串"，而是一段「规则串」**
+  - **执行位置**：`io.legado.app.model.webBook.w.b()`（正文主流程，由 `x0.k` → `CheckSourceService.e` / 换源 UI 进入），
+    读 `contentRule.getReplaceRegex()` → `AnalyzeRule.getString(ruleStr, 正文)`（mask=4 的 2 参重载）。
+  - **切段语义**：`AnalyzeRule$SourceRule.makeUpRule()` 把整串 `split("##")`（保留尾部空串）：
+    `[0]`=取值规则（trim）、`[1]`=正则、`[2]`=替换串（缺省 `""`）、`[3]` 存在 ⇒ 只替换首个匹配。
+    `AnalyzeRule` 主循环里：**`[0]` 空且 `[1]` 非空 ⇒ 跳过取值、直接对正文做 `Regex.replace`**。
+  - **写法硬约束（最重要）**：**必须以 `##` 开头** —— `##正则##替换`、`##正则`（=删除全部匹配）、`##正则##替换##x`（只替换第一处）。
+    **裸正则（无前导 `##`）不会被当正则**：整串落到 `[0]`，被当 JSOUP 规则求值 → 取不到 →
+    **正文整段变空 → 抛 `ContentEmptyException("内容为空")`**。这比"不生效"危险得多。
+  - **执行时机 / 作用对象**：多页正文抽取、`joinToString("\n")`、逐行 trim **之后**，落库**之前**；
+    作用对象是**抽取后的正文字符串**（不是原始 HTML 全页）。
+  - **副作用**：该格式化管道（逐行 trim + 每行前加两个全角空格）整体包在 `if (replaceRegex 非空)` 内 ——
+    不填 `replaceRegex` 时不执行，填了才会让正文排版变化（字节码实证，真机待复核）。
+  - **优先级建议**：仍**优先把净化写进 `content` 的 `<js>` 或规则行内 `##`**（可控、能按行过滤、不依赖执行时机）；
+    `replaceRegex` 作为补充手段可用，但必须 `##` 开头，且正则要匹配"抽取并 trim 后的文本形态"。
+  - **证据**：`webBook.w.b` 指令 —— `invoke-virtual v5, ContentRule->getReplaceRegex()` →
+    `invoke-static/range … AnalyzeRule->getString$default(…, I=4)`（androguard 与 jadx 两工具同址同序）；
+    `AnalyzeRule$SourceRule.makeUpRule`（`kotlin.text.u.H0` 切 `"##"`）；`AnalyzeRule.java:1540-1600` 主循环；
+    APK `io.legado.app.release` 3.25 / vcode 15604 / md5 `7c5ab9dfa751f58b8ef0220ae001d619`。
+    `references/evidence/AnalyzeRule-SourceRule.java`（jadx 1.5.0 完整反编译 `AnalyzeRule$SourceRule`，含 makeUpRule 按 `##` 切四段 1844 行）。
+  - **旧铁律 10 的"死字段"部分作废**，其内容并入本条。
 - **铁律 6：正文"JS 渲染"很可能是"cookie 判别"的表象**
   - 爪机书屋实测：`enabledCookieJar:true` + webView 过过一次 CF 后，cookie 落库，**纯 OkHttp 直连 2 秒即得明文正文**（无需 webView、无需等解密）。
   - 机制：无有效 cookie → 服务器返回挖空容器 + 解密脚本（防爬）；有有效 cookie → 静态 HTML 直接给明文正文。之前判"必须 JS 渲染"是被挖空页误导。
@@ -92,16 +105,16 @@
     `webJs` 只能**事后**清理（页面已加载完才执行，请求发出时的 cookie 已带上）——但**不是唯一手段**：
     URL 行内选项的 **`js` 字段在发请求之前执行**，可事前清 CookieStore（见**铁律 16** 双清闭环）。
     ⚠️ 本行曾写"唯一可用手段是 webJs、无法在请求发出前干预"，与铁律 16 直接矛盾，已订正。
-- **铁律 10：正文净化只有行内 `##` 可靠 —— `replaceRegex` 在 3.25 是死字段（与铁律 5 同一结论）**
-  - `content` 规则的**行内 `##正则##替换##`**：在 `AnalyzeRule.getString()` 内部、`HtmlFormatter` **之前**执行，
-    作用对象是 **HTML 字符串**（XPath 抽取结果的 outerHTML）。要删 DOM 里的广告节点用这里，写法须匹配标签：
-    `//div[@id='rtext']##<a[^>]*>[^<]*返回顶部[^<]*</a>##`
-  - `ruleContent.replaceRegex` 字段：在 3.25 定制版全代码库**零消费点**（铁律 5 实证）→ **写了不执行**。
-    别照抄"它在格式化之后对纯文本生效"的说法 —— 那是别的版本的行为，本 App 不适用；按它写净化会静默失效。
+- **铁律 10：正文净化有两条等价路径，行内 `##` 与 `ruleContent.replaceRegex` 都执行，差别只在时机与作用对象**
+  - **行内 `##正则##替换##`（写在 `ruleContent.content` 规则末尾）**：在 `AnalyzeRule.getString()` 内部、
+    对**该规则的抽取结果**（HTML 字符串）执行 —— 要删 DOM 里的广告节点用这里，写法须匹配标签：
+    `//div[@id='rtext']##<a[^>]*>[^<]*返回顶部[^<]*</a>##`。
+  - **`ruleContent.replaceRegex` 字段**：对**全部正文（含多页合并后）**执行，时机在抽取之后、落库之前（详见铁律 5）。
+  - 二者**共用同一套 `split("##")` 四段语义与同一条替换实现**，区别只是"串从哪来"。
   - 两者都不是 DOTALL（Kotlin `String.replace(Regex)`）；跨行匹配用 `[^<]*` / `[\s\S]*` 显式表达，不要依赖 `.`。
-  - **避坑**：行内替换里优先用**不含反斜杠**的正则（如 `[^>]*` `[^<]*`）。`\s` 在 JSON 里要写成 `\\s`，
-    一旦转义层数搞错就静默失效，而且本地验证时如果直接从文件原文取字符串、不做 JSON 反转义，
-    会把 `\\s` 当真，测出来"通过"而真机失效。
+  - **避坑**（原条保留）：行内替换优先用**不含反斜杠**的正则；`\s` 在 JSON 里要写成 `\\s`，
+    本地验证若直接从文件取原文不做 JSON 反转义，会把 `\\s` 当真，测出"通过"而真机失效。
+  - **不存在 `###` 分隔符**：`##正则###$1` 会被切成替换串 `#$1`，正确写法是 `##正则##$1`。
 - **铁律 11：URL 行内 `webJs` 必须自带「内容够不够」判定，否则会把半截页面当成结果返回**
   - `BackstageWebView` 的判定只有 `result.isNotEmpty() && result != "null"`：**半截页面也算成功**。
     然后重试是有内容的——按 **固定 1000ms**（3.25 实证，不是递增）最多 31 次重跑同一个 JS，**不会重新发起请求**。
@@ -497,6 +510,32 @@ mowan 匿名身份有「累计 10 章」阅读限额，超出后正文接口返�
 
 被误判过频控（差点去加重试/换 UA，全是无效功）。**错误码判读必须先读 `message` 文本再定性**：文案明示「继续阅读请登录」就是**站点业务规则**，解法是 `enabledCookieJar:true` + 在 App 书源管理点「登录」打开站点登录账号，不是加重试、不是换 UA、不是降级 webView。频控的特征是**连接层失败/429/质询页**，不是业务 JSON 里的明确文案。
 
+### 正文全藏在 `<script>` 里：`@html` 会先把 script 删干净，必须用 `@all`（百草露实证，2026-10-31）
+
+> 🚨 **铁律 27：3.25 的 `@html` ≠ innerHTML，它会先删 script/style 再取 outerHtml。**
+> `AnalyzeByJSoup.getResultLast` 原文：`"html" -> { elements.select("script").remove(); elements.select("style").remove(); val html = elements.outerHtml(); if (html.isNotEmpty()) textS.add(html) }`。
+> 正文以 `<script>document.writeln(混淆对象.方法('base64'))</script>` 为载体的站点，用 `@html` 等于**先把正文删掉**，只剩提示语。真机日志长这样：`诊断[html长度=127,base64块=0]`，而 curl 直抓同页同一容器有 6000+ 字符。
+> 解法：改用 **`@all`**——`"all" -> textS.add(elements.outerHtml())`，不删 script/style。
+
+**识别信号（两个都对上就是它）**
+- 真机日志里容器长度只有一两百字符，服务端 curl 拿到的同一页却有几千字符（说明是客户端侧被削，不是站点限流）；
+- 页面 `#txt` / `#content` 里有 N 个 `<script>document.writeln(...)</script>`。
+
+**三条连带纠正**
+1. **本地引擎曾与真机不一致**：`jsoup_eval/JsoupRuleEval` 旧实现 `html` 返回 innerHTML 且不删 script，`test_parse.py` 也没路由 `@all` —— 于是本地 6088 字符全绿、真机 127 字符全空。现已按真机语义修正（`html` 删 script/style 取 outerHtml，新增 `all` 分支，`@html`/`@all` 一律走真 Jsoup 通道），回归见 `evals/jsoup_realdevice_equiv.py` 的「html删script(真机空壳) / all保留script(正文载体)」两条。
+2. **返回的是单条拼接串**：`getResultLast` 里是 `textS.add(elements.outerHtml())`，整个 Elements 拼成**一条**，不是逐元素各一条。自检用例 `html 指示符` 的期望值因此从 50 改为 1。
+3. **混淆函数名每次请求都变**（本例同一章两次抓取分别为 `siifrhxc.owcziy(...)` 与 `ved.mg(...)`）。正则必须吃到函数名，不要写死：
+   ```js
+   var re = /writeln\([^'"]*['"]([A-Za-z0-9+\/=]+)['"]/g;   // m[1] 是 base64 载荷
+   ```
+
+**一条命令自证**（对同一份页面比较两种取值）
+```bash
+D=scripts/jsoup_eval
+java -cp "$D/jsoup-1.17.2.jar:$D" JsoupRuleEval page.html "id.txt@html" | base64 -d | wc -c   # 127  ← 删了 script
+java -cp "$D/jsoup-1.17.2.jar:$D" JsoupRuleEval page.html "id.txt@all"  | base64 -d | wc -c   # 6171 ← 保留
+```
+
 ### 可选：用 Legado 同款引擎本地复现
 
 #### 可选：用 Legado 同款引擎本地复现（"脚本 OK / 真机不行"时的终审手段）
@@ -522,6 +561,104 @@ Maven 中央仓拉不动时走阿里云镜像：`https://maven.aliyun.com/reposi
 
 > ⚠️ **jadx 反编译输出不可全信**（曾漏显 `body()` 方法导致误判 TypeError 根因）。
 > **定性 API 行为请以 `javap -c -p <class>` 字节码为准**，反编译只用来定位调用点。
+
+---
+
+### 坑 N11（技能包铁律 28）：正文分页变量「跨章陷阱」：末页的下一页链接指向下一章
+
+> 🚨 **铁律 28：分页 URL 带 `_N.html` / `?p=N` 形态、章 URL 不带；末页的「下一页」变量常指向下一章，绝不能把页面下一页变量原样当 `nextContentUrl`。** 对应 knowledge `references-extra/pitfalls.md` 坑 N11。
+
+**症状**：第 1 章只读到一半就结束；若把页面里的「下一页变量」直接当 `nextContentUrl`，Legado 会把**整本书**拼进第 1 章。
+
+**根因**：很多站把「下一页」与「下一章」合并成一个变量（如百草露的 `hhekgsv`）：
+
+```
+第1页 hhekgsv → 第2页
+第2页 hhekgsv → 第2章   ← 跨章了
+```
+
+**判据**：分页 URL 一定带「页」的形态（`_N.html` / `?p=N`），章 URL 不带。**按形态判定，不要按章 id 前缀判**（百草露的 `iytcgscb` 与 `iytcgsci` 前 8 字符相同，前缀比较会误判）。
+
+**修法（自包含拼页，绕开 `nextContentUrl` 求值语义未实证的风险）**：
+
+```js
+var m = html.match(/hhekgsv\s*=\s*['"]([^'"]+)['"]/);
+if(!m){ break; }
+if(!/_\d+\.html(\?|#|$)/.test(m[1])){ break; }   // ★ 只跟随同章下一页
+```
+
+配套三件：`seen{}` 去重防回环、`g < 8` 页数上限、`java.connect` 失败即退回第 1 页结果（保证不比修复前更差）。
+
+**为什么不直接用 `nextContentUrl`**：3.25 里它的求值对象（整页 Html 还是正文容器）无实证，而这类差异正是「本地全绿真机空」的高发区。自包含写法每一步都能本地 Rhino 验证。
+
+**证据**：百草露 2026-10-31，23 段/1196 字 → 45 段/2716 字，见 `cases/站点档案_百草露.md` §3.4。
+
+---
+
+### 坑 N12（技能包铁律 29）：搜索「关键字最少 N 个字符」——数的是 **UTF-8 字节**，且 `trim()` 只删半角
+
+> 🚨 **铁律 29：服务端用 PHP `strlen()` 数字节（中文 3 字节/字）、`trim()` 只删半角空格；全角空格 U+3000 须写成百分号编码 `%E3%80%80`，字面 U+3000 会被 Legado 发请求前 trim 掉。** 对应 knowledge `references-extra/pitfalls.md` 坑 N12。
+
+**症状**：搜 2 个汉字（「系统」）被拒，提示「关键字最少 10 个字符」。
+
+**根因**：
+1. PHP `strlen()` 数字节：中文 3 字节/字，「系统」= 6 字节，不过 10 字节闸。
+2. `trim()` 默认字符集只含半角空白，**全角空格 U+3000 不会被删**。
+
+**修法**：用全角空格补足，但**必须写百分号编码**：
+
+| 写法 | 结果 |
+|---|---|
+| `{key}　　`（字面 U+3000） | ❌ 被 Legado 发请求前 trim 掉，真机 body 只剩 `{key}` |
+| `{key}%E3%80%80%E3%80%80%E3%80%80` | ✅ 编码形态不被 trim，服务端解码为 3×U+3000（9 字节）+ 1 汉字 → 过闸 |
+
+**通用结论**：「服务端按字节校验 + 客户端会 trim」的组合，空白一律用 `%XX` 编码写。
+
+**证据**：wap.shoujixs.net 2026-10-31，三关键词各 20 条真结果，用户真机确认。
+
+---
+
+### 坑 N13（技能包铁律 30）：`Packages.java.*` 会替换全局 `java`；Rhino 的 `ConsString` 不能当 `java.lang.String` 传
+
+> 🚨 **铁律 30：脚本开头先 `var J = java;` 存住原对象再碰 `Packages.java.*`；请求头逐个 `setRequestProperty` 不要组 Map（Rhino 拼接串是 `ConsString` 不是 `java.lang.String`）。** 对应 knowledge `references-extra/pitfalls.md` 坑 N13。
+
+**症状 A**：用过 `Packages.java.net.*` 之后，`java.log()` / `java.post()` 报 **"not a function"**。
+**症状 B**：把 Map 当参数传 Java 方法时报 **`ConstString cannot be cast to java.lang.String`**。
+
+**根因**：
+- A：访问 `Packages.java.*` 的成员会把全局 `java` 重绑成 `JavaPackage`，之后 `java.xxx` 不再是方法。
+- B：Rhino 的拼接字符串是 `ConsString`，不是 `java.lang.String`；走 Map 参数时会强转失败。
+
+**修法**：
+
+```js
+var J = java;                                  // ① 文件开头先存住
+var log = function(s){ try{ J.log(s); }catch(e){} };
+
+conn.setRequestProperty("Content-Type", "..."); // ② 请求头逐个传参，不要组 Map
+```
+
+**证据**：八叉书库 bcshuku.com 三轮迭代，见 `cases/站点档案_八叉书库.md` §3/§4。
+
+---
+
+## 附：知识库独有坑档案补录（引擎侧合并保留，2026-11-13）
+
+> 说明：本文件正文为 v1.15.25 技能包 `references/pitfalls.md` 的正式版（铁律 0~30，
+> 含铁律 5/10 `replaceRegex` 生效的订正、铁律 27 `@html` 删 script、`N11~N13` 升铁律 28/29/30）。
+> 以下三段是知识库 `references-extra/pitfalls.md` 独有、技能包正文未收录的历史档案，
+> 按「对齐已发布结论、不丢独有档案」原则整段保留、原文不改，编号沿用原档，
+> 不与正文铁律序列混编：
+> - **N1~N9**（2026-10-24 档案蒸馏，20 天 17 站实战）为独立实战坑，正文无对应条目；
+> - **N10** 与正文「铁律 27」是同一现象（`@html` 先删 script）的详版档案与规则版，结论一致，
+>   此处保留判据表 / Kotlin 反编译原文 / `cases` 证据链接 / 工具链同步清单等正文未收录的细节；
+> - **N11~N13** 正文已升为铁律 28/29/30，此处不重复。
+>
+> 口径一致性：知识库旧版铁律 5/10 曾把 `ruleContent.replaceRegex` 判为「死字段、零消费点」，
+> 与同目录 `field-availability.md`／`workflow-detail.md`（v1.15.24 已并入）及 v1.15.22 落盘的
+> `evidence/AnalyzeRule-SourceRule.java` dex 物证（`webBook.w.b` → `AnalyzeRule.getString`，
+> `makeUpRule` 按 `##` 切段）相矛盾。本次以发布版正文为准完成订正：`replaceRegex` 在 3.25 生效、
+> 必须 `##` 开头，裸正则会把正文取空并抛「内容为空」。附录三段档案均不涉及该结论，无需改动。
 
 ## 🔴 新坑补遗（2026-10-24 档案蒸馏，20 天 17 站实战）
 
@@ -575,7 +712,6 @@ xs5200 实证：站点按屏幕宽度/触摸能力检测强制跳 m 域，改 UA
 
 同案附坑：`lastUpdateChapterName` 这类字段名别照抄别的站——该接口根本没有此字段，硬抄则永远空；补字段前先看接口真实返回的 key。
 
-
 ---
 
 ## 🔴 新坑补遗（2026-10-31 · 书源侧提交包合并）
@@ -616,80 +752,6 @@ xs5200 实证：站点按屏幕宽度/触摸能力检测强制跳 m 域，改 UA
 - `scripts/jsoup_eval/JsoupRuleEval.java`：`html` 改为「删 script/style 后**单条** outerHtml」，新增 `all`
 - `test_parse.py`：末段 `html`/`all` 强制走真 Jsoup 通道
 - `evals/jsoup_realdevice_equiv.py`：新增 script 载体夹具与 4 条 golden
-
----
-
-### 坑 N11：正文分页变量「跨章陷阱」：末页的下一页链接指向下一章
-
-**症状**：第 1 章只读到一半就结束；若把页面里的「下一页变量」直接当 `nextContentUrl`，Legado 会把**整本书**拼进第 1 章。
-
-**根因**：很多站把「下一页」与「下一章」合并成一个变量（如百草露的 `hhekgsv`）：
-
-```
-第1页 hhekgsv → 第2页
-第2页 hhekgsv → 第2章   ← 跨章了
-```
-
-**判据**：分页 URL 一定带「页」的形态（`_N.html` / `?p=N`），章 URL 不带。**按形态判定，不要按章 id 前缀判**（百草露的 `iytcgscb` 与 `iytcgsci` 前 8 字符相同，前缀比较会误判）。
-
-**修法（自包含拼页，绕开 `nextContentUrl` 求值语义未实证的风险）**：
-
-```js
-var m = html.match(/hhekgsv\s*=\s*['"]([^'"]+)['"]/);
-if(!m){ break; }
-if(!/_\d+\.html(\?|#|$)/.test(m[1])){ break; }   // ★ 只跟随同章下一页
-```
-
-配套三件：`seen{}` 去重防回环、`g < 8` 页数上限、`java.connect` 失败即退回第 1 页结果（保证不比修复前更差）。
-
-**为什么不直接用 `nextContentUrl`**：3.25 里它的求值对象（整页 Html 还是正文容器）无实证，而这类差异正是「本地全绿真机空」的高发区。自包含写法每一步都能本地 Rhino 验证。
-
-**证据**：百草露 2026-10-31，23 段/1196 字 → 45 段/2716 字，见 `cases/站点档案_百草露.md` §3.4。
-
----
-
-### 坑 N12：搜索「关键字最少 N 个字符」——数的是 **UTF-8 字节**，且 `trim()` 只删半角
-
-**症状**：搜 2 个汉字（「系统」）被拒，提示「关键字最少 10 个字符」。
-
-**根因**：
-
-1. PHP `strlen()` 数字节：中文 3 字节/字，「系统」= 6 字节，不过 10 字节闸。
-2. `trim()` 默认字符集只含半角空白，**全角空格 U+3000 不会被删**。
-
-**修法**：用全角空格补足，但**必须写百分号编码**：
-
-| 写法 | 结果 |
-|---|---|
-| `{key}　　`（字面 U+3000） | ❌ 被 Legado 发请求前 trim 掉，真机 body 只剩 `{key}` |
-| `{key}%E3%80%80%E3%80%80%E3%80%80` | ✅ 编码形态不被 trim，服务端解码为 3×U+3000（9 字节）+ 1 汉字 → 过闸 |
-
-**通用结论**：「服务端按字节校验 + 客户端会 trim」的组合，空白一律用 `%XX` 编码写。
-
-**证据**：wap.shoujixs.net 2026-10-31，三关键词各 20 条真结果，用户真机确认。
-
----
-
-### 坑 N13：`Packages.java.*` 会替换全局 `java`；Rhino 的 `ConsString` 不能当 `java.lang.String` 传
-
-**症状 A**：用过 `Packages.java.net.*` 之后，`java.log()` / `java.post()` 报 **"not a function"**。
-**症状 B**：把 Map 当参数传 Java 方法时报 **`ConstString cannot be cast to java.lang.String`**。
-
-**根因**：
-
-- A：访问 `Packages.java.*` 的成员会把全局 `java` 重绑成 `JavaPackage`，之后 `java.xxx` 不再是方法。
-- B：Rhino 的拼接字符串是 `ConsString`，不是 `java.lang.String`；走 Map 参数时会强转失败。
-
-**修法**：
-
-```js
-var J = java;                                  // ① 文件开头先存住
-var log = function(s){ try{ J.log(s); }catch(e){} };
-
-conn.setRequestProperty("Content-Type", "..."); // ② 请求头逐个传参，不要组 Map
-```
-
-**证据**：八叉书库 bcshuku.com 三轮迭代，见 `cases/站点档案_八叉书库.md` §3/§4。
 
 ---
 

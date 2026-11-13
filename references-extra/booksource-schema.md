@@ -162,9 +162,14 @@
 
 ## 八、净化 replaceRegex(注意格式)
 
-- 🚨 **3.25 反编译版里 `ruleContent.replaceRegex` 是死字段**：全代码库零消费，写了不报错也不执行。
-  （书源级 `replaceRegex` 字段同样不存在；各版本对象格式的传闻只在旧版 App 流传，不要写。）
-- **唯一可用方案**: 直接在 `ruleContent.content` 规则末尾用 `##正则##替换`(官方"正则之净化", 循环匹配替换), 零额外字段、最稳。
+- ✅ **3.25 里 `ruleContent.replaceRegex` 是活字段**：dex 实证消费点在 `webBook.w.b()` → `AnalyzeRule.getString(ruleStr, 正文)`（`SourceRule.makeUpRule` 按 `##` 切段）。（完整切段反编译见 `references/evidence/AnalyzeRule-SourceRule.java`）
+- 🚨 **但必须 `##` 开头**，三/四段写法（与规则行内 `##` 同一套切分）：
+  - `"replaceRegex": "##正则"` → 删除全部匹配
+  - `"replaceRegex": "##正则##替换串"` → 替换全部匹配
+  - `"replaceRegex": "##正则##替换串##1"` → 只替换第一处
+  - 🔴 **裸正则（`"replaceRegex": "正则"`）不会被当正则**：整串被当 JSOUP 规则求值 → 取不到 → **正文整段变空 → 抛 `ContentEmptyException("内容为空")`**，章节拉取失败。
+- 🚨 **书源级（顶层）`replaceRegex` 键不存在**：`BookSource` 实体 30 个字段实测无此键，写在顶层会被 Gson 静默丢弃。
+- **等价替代**：直接在 `ruleContent.content` 规则末尾用 `##正则##替换`（官方"正则之净化"），零额外字段、最稳。
 
 ## 九、完整最小可用示例(真实 schema)
 

@@ -53,7 +53,8 @@
 | 末段 | 取值 |
 |---|---|
 | `text` | 元素文本 |
-| `html` | 元素内部 HTML |
+| `html` | ⚠️ **不是 innerHTML**：3.25 真机先 `select("script").remove()`+`select("style").remove()`，再返回**单条** `elements.outerHtml()`（`AnalyzeByJSoup.getResultLast` 实证）。正文/数据以 `<script>` 为载体的站点用它=自删正文 |
+| `all` | `elements.outerHtml()`，**不删** script/style；正文藏在 `<script>document.writeln(...)</script>` 里时必须用这个（见 `pitfalls.md` 铁律 27） |
 | `@href` / `@src` / `@content` | 取对应属性 |
 | `href` / `src` / `content` 这类裸属性名 | 视为属性名取属性（Legado og 取值标准写法；元素无此属性时回退取文本，避免误空） |
 | 不写末段 | 取元素本身（容器规则常用，如 `bookList: .block@ul@li`） |
@@ -63,8 +64,10 @@
 > ✅ 校验器 `test_parse.py` 已对齐上述 3.25 真机引擎，实机验证：`.block@ul@li` 容器命中 50、`-.info_chapters@ul@li@a` 容器命中 20、`[property=og:title]@content` 命中 1，均为合法 JSOUP 规则，不再报 `Invalid expression`。
 
 > ⚠️ **本地校验器对 JSOUP 规则的已知局限（知悉以免被误导）**：
-> 1. **扩展属性选择器 `~=` / `?=` 走真 Jsoup 通道求值**：反编译 `AnalyzeByJSoup.getElementsSingle` 实证，Legado 对 `[attr~=val]` / `[attr?=val]` **不做任何自定义处理**，直接委托 Jsoup 原生引擎（Jsoup 的 `~=` 是正则 OR 构造，如 `[a~=x|y]` ⇒ `\bx|y\b`）。bs4/soupsieve 无法等价建模，故校验器内置**真 Jsoup 求值通道**（`scripts/jsoup_eval/`，jar + `JsoupRuleEval`）忠实复刻真机行为——`[property~=category|status|update_time]@content` 实测返回 `[玄幻, 连载]`，与真机一致。**前提是本机有 Java 且 `jsoup_eval/jsoup-1.17.2.jar` 在位**；若通道不可用，校验器会优雅降级为 **`[需真机验证]`** 而不误报非法。
+> 1. **扩展属性选择器 `~=` 走真 Jsoup 通道求值**：反编译 `AnalyzeByJSoup.getElementsSingle` 实证，Legado 对 `[attr~=val]` **不做任何自定义处理**，直接委托 Jsoup 原生引擎（Jsoup 的 `~=` 是**正则匹配**——jsoup-1.17.2 实测：无词边界，`foobar` 也中 `~=foo`；`|` 为正则 OR，`[a~=x|y]` 双命中；`.` 为任意字符）。bs4/soupsieve 无法等价建模，故校验器内置**真 Jsoup 求值通道**（`scripts/jsoup_eval/`，jar + `JsoupRuleEval`）忠实复刻真机行为——`[property~=category|status|update_time]@content` 实测返回 `[玄幻, 连载]`，与真机一致。**前提是本机有 Java 且 `jsoup_eval/jsoup-1.17.2.jar` 在位**；若通道不可用，校验器会优雅降级为 **`[需真机验证]`** 而不误报非法。
+>    ⚠️ **`?=` 不是操作符**（2026-10-25 审计实证，可复跑）：Jsoup 将 `?` 解析进**属性名**，`[attr?=val]` 恒不命中、不报错；反编译坐实选择器透传 `select()`，真机同结果——**写了等于静默取空**。此类规则仍走真通道（拿到与真机一致的恒空），行为已固化为回归（`evals/jsoup_realdevice_equiv.py`「幻影操作符」用例）。
 > 2. **`##$##` 是整串替换（非正则锚点）**：`##$##值` 是把整段结果替换为字面量的 Legado 惯用法（如 `tocUrl` 的 `##$##desc.html`）。校验器已正确实现为整串替换，不会把 `$` 当正则结尾锚点而追加出 `xxxdesc.html` 之类的异常拼接。
+>    （`##` 切段机制的完整 jadx 反编译见 `references/evidence/AnalyzeRule-SourceRule.java`）
 > 3. **混合引擎（双向已支持）**：JSOUP 容器挂 XPath 子字段、XPath 容器挂 JSOUP 子字段真机都支持，本地也已**对称**支持两个方向（容器是 XPath/lxml 节点时逐节点转 bs4 再求 JSOUP，反之重建 lxml 子树求 XPath），不会误报 ERR。
 
 ## 二、XPath（静态 HTML 主力）
@@ -99,7 +102,7 @@
 两个用途：
 
 1. **rule 内提取**：在 XPath/CSS 取出的整块文本上二次用正则裁出目标（`##正则##替换`，净化为循环替换）。
-2. **ruleContent.content 末尾净化（行内 `##正则##替换##` 或 content 的 `<js>`）**：全局或区域清洗。⚠️ **`ruleContent.replaceRegex` 字段在 3.25 是死字段**（反编译实锤全代码库零消费：写了不执行、静默丢弃，pitfalls.md 铁律 5）——不要依赖它；格式见 `booksource-schema.md` 第八节。这里的 Regex 指 `##` 行内清洗语法（由 `splitSourceRule` 切段解析，四段语义与「不存在 `###`」见 `workflow-detail.md`「## 清洗规则的真实语义」），不是替换规则对象。
+2. **ruleContent.content 末尾净化（行内 `##正则##替换##` 或 content 的 `<js>`）**：全局或区域清洗。`ruleContent.replaceRegex` 在 3.25 **生效**（`webBook.w.b`），但必须以 `##` 开头；行内 `##` 与它共用 `SourceRule.makeUpRule` 的 `##` 切段。格式见 `booksource-schema.md` 第八节。这里的 Regex 指 `##` 行内清洗语法（由 `splitSourceRule` 切段解析，四段语义与「不存在 `###`」见 `workflow-detail.md`「## 清洗规则的真实语义」），不是替换规则对象。
 
 示例：`ruleContent` 取出正文块后，在规则末尾用 `##` 把广告语清掉：
 
@@ -167,4 +170,4 @@
 | 想要 XPath 但结构里带层级点 | 用 `@` 分隔的 JSOUP，或写 `//` 开头的纯 XPath |
 | 数据走 XHR 返回 JSON（动态） | JSONPath |
 | 请求需签名 / 正文需解密 | JS 注入 + 上面之一 |
-| 正文有广告 / 冗余标签 | content 内联 `##正则##替换##` 或 content 的 `<js>` 过滤（**不要用 `ruleContent.replaceRegex` 字段，3.25 死字段**） |
+| 正文有广告 / 冗余标签 | content 内联 `##正则##替换##` 或 content 的 `<js>` 过滤；`ruleContent.replaceRegex` 本 App 生效，须 `##` 开头 |
