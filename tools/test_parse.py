@@ -36,7 +36,10 @@
       ## 正则清洗(尽力模拟)。JS(<js>)规则不本地执行, 明确标注「需真机验证」而非假通过。
     - 只验证解析字段(rule*), 跳过 url/method/charset/headers/body 等配置字段; 可选展示字段缺失不计入失败。
     - HTML 样本按书源 charset 读取(缺省回退 gb18030→utf-8), 兼容 GBK 老站。
-    - 退出码: 0 核心字段全部命中; 1 有核心字段 MISS/ERR; 2 参数/解析错误。
+    - 退出码: 0 核心字段全部命中(且至少 1 个区域真实验过); 1 有核心字段 MISS/ERR;
+      2 参数/解析错误, 或**零实测区**(未提供任何区域样本, 全部为中性 SKIP)。
+      零样本时判「未验证」而非「OK」: 中性 SKIP 不等于通过(与 verify_booksource.py
+      四态判定的 UNKNOWN 语义对齐, 见其文件头「rc 非 0/1 一律不得当已通过」)。
 """
 import sys
 import os
@@ -1463,6 +1466,9 @@ def main():
     print("=" * 50)
 
     all_ok = True
+    # 真实跑过解析的区域数: 只有传入 HTML 样本(或 --json 全局 JSON 样本)才计入。
+    # 中性 SKIP 一律不计入 —— 否则「零命中 + 零失败」会被 all_ok 的默认值判成通过。
+    verified_regions = 0
     for name in ("searchUrl", "ruleBookInfo", "ruleToc", "ruleContent"):
         if name == "searchUrl":
             region = get_search_region(src)
@@ -1471,6 +1477,8 @@ def main():
         if region is None:
             print("\n[%s] 未配置, 跳过" % name)
             continue
+        if samples.get(name) is not None or json_data is not None:
+            verified_regions += 1
         r_ok = check_region(name, region, samples.get(name), json_data)
         if not r_ok:
             all_ok = False
@@ -1479,6 +1487,10 @@ def main():
     explore_regions = get_explore_regions(src)
     if explore_regions:
         html = samples.get("exploreUrl")
+        # 只有提供了发现样本才算「真实验过一个区域」; 中性 SKIP(配了入口却没给样本)
+        # 不计入 verified_regions, 否则「配 18 条入口、一条没验」也会被当成已验证。
+        if html is not None:
+            verified_regions += 1
         # 去重(共用顶层 ruleExplore 时多条入口规则相同)
         seen, uniq = set(), []
         for reg in explore_regions:
@@ -1520,16 +1532,28 @@ def main():
         for n in FIELD_NOTES:
             print("   - %s" % n)
         print("-" * 50)
-    if all_ok and not JS_NOTE_FIELDS:
-        verdict = "核心字段全部命中 OK" + ("（但有 %d 项值可疑，见上）" % len(_SUSPICIOUS_WARNINGS) if _SUSPICIOUS_WARNINGS else "")
-    elif all_ok and JS_NOTE_FIELDS:
+    if not all_ok:
+        verdict = "存在核心字段 MISS/ERR (请在 App 复验或微调规则)"
+    elif verified_regions == 0:
+        # 零实测区: 全部是中性 SKIP。此前 all_ok 默认 True 会把「零命中 + 零失败」
+        # 误判成「核心字段全部命中 OK」(假绿)。SKIP 不等于通过。
+        verdict = "未验证: 未提供任何区域样本, 全部为中性 SKIP (SKIP 不等于通过)"
+    elif JS_NOTE_FIELDS:
         verdict = ("核心字段本地命中 OK; 另有 %d 项 JS 规则需 App 真机验证(本地无法执行)"
                    % len(set(JS_NOTE_FIELDS)))
     else:
-        verdict = "存在核心字段 MISS/ERR (请在 App 复验或微调规则)"
+        verdict = "核心字段全部命中 OK" + ("（但有 %d 项值可疑，见上）" % len(_SUSPICIOUS_WARNINGS) if _SUSPICIOUS_WARNINGS else "")
     print("结果: %s" % verdict)
+    print("实测区域数: %d" % verified_regions)
     print("=" * 50)
-    sys.exit(0 if all_ok else 1)
+    # 退出码三态: 1=有 MISS/ERR(FAIL); 2=零实测区(UNKNOWN, 与 verify_booksource.py
+    #   `rc!=0 → UNKNOWN` 判定对齐, 见其汇总段); 0=至少 1 个区域真实验过且全部命中。
+    # 失败优先于零实测: 真有 MISS/ERR 时必 exit 1, 不能被 exit 2 盖掉。
+    if not all_ok:
+        sys.exit(1)
+    if verified_regions == 0:
+        sys.exit(2)
+    sys.exit(0)
 
 
 def jsoup_self_test(verbose=False):

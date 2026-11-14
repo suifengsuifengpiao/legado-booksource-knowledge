@@ -223,6 +223,25 @@ def check_cli_args(errors, notices=None):
 COUNT_RE = re.compile(r"(?<![\w.])(\d{1,3})\s*/\s*(\d{1,3})(?![\w.])")
 ITEM_RE = re.compile(r"(\d{1,3})\s*项(?:回归|用例)")
 
+# 3a 语境判据(v1.15.26 同版补修, 与 v1.15.23 check_cli_args 收窄同族):
+# 写死计数是「紧邻短语」, 不是「整行任意位置出现语境词」。原判据
+#   `re.search(r"回归|通过|用例|self-test", line)`
+# 把 docstring 里「rc 非 0/1 一律不得当已通过」隔着半行的「通过」当成计数语境,
+# 于是退出码枚举 `0/1` 被误报写死计数(假红)。当时只能改文档措辞规避, 那是压症状不是修判据。
+# 收窄为两类, 任一成立才判计数短语:
+#   (A) 数字对左侧紧邻 回归/用例/self-test (允许少量标点空白), 如 "JS层回归 7/7" / "回归: 38/38"
+#   (B) 数字对右侧紧邻 通过/全过/全部通过/项回归/项用例, 如 "96/96 通过"
+# 纯结构、零语义判断: 不识别否定句, 不做黑名单。取舍仍是「宁可漏不可吵」——语境词离数字对
+# 远的写法一律放行(漏一条写死计数优于误报刷屏, 误报被习惯性忽略等于没有护栏, 见 3a 原注释)。
+# 被放行但整行确含语境词的, 降 [NOTE] 显式可见, 不静默吞(同 v1.15.23 notices 接线)。
+CTX_BEFORE_RE = re.compile(r"(?:回归|用例|self-test)[：:，,、\s]*$")
+CTX_AFTER_RE = re.compile(r"^[\s：:，,、]*(?:通过|全过|全部通过|项回归|项用例|回归|用例)")
+
+
+def _is_count_phrase(line, m):
+    """COUNT_RE 的这个数字对是否处在计数短语里。供 3a 与 --self-test 真值表共用, 避免两处判据漂移。"""
+    return bool(CTX_BEFORE_RE.search(line[:m.start()]) or CTX_AFTER_RE.match(line[m.end():]))
+
 
 def check_hardcoded(errors, notices=None):
     """notices: 非阻断提示。**不为零不算失败**，但必须打出来——
@@ -243,8 +262,16 @@ def check_hardcoded(errors, notices=None):
             if "re.search" in s or "re.compile" in s or "%s/%s" in s or r"(\d" in s:
                 continue        # 解析用的正则串, 不是写死值
             if not re.search(r"回归|通过|用例|self-test", line):
-                continue        # 必须带回归语境; "步骤 1/4" 之类不算
+                continue        # 粗筛: 连语境词都没有("步骤 1/4" / "HTTP 404/403"), 一律不算
             for m in COUNT_RE.finditer(line):
+                # v1.15.26 同版补修: 粗筛过了不等于就是写死计数, 还要逐数字对确认它
+                # 真的处在「计数短语」里。退出码枚举 0/1 因同行含「通过」会被粗筛放进来的
+                # 那条假红(v1.15.26 docstring), 正是在这里被拦下并降 NOTE 显式放行。
+                if not _is_count_phrase(line, m):
+                    notices.append("[%s:%d] 数字对 '%s' 未构成计数短语(语境词非紧邻), "
+                                   "判为退出码/枚举语境放行, 不报写死计数"
+                                   % (base, i, m.group(0)))
+                    continue
                 errors.append("[%s:%d] 写死计数 '%s' → 用例数会增长, 必须解析实输出而非手写"
                               % (base, i, m.group(0)))
             for m in ITEM_RE.finditer(line):
@@ -504,7 +531,7 @@ _PITFALLS = """\
 """
 
 
-def _sandbox_files(dirty, broken_meta=False, odd_display=False, date_first=False, date_sep=False, date_dot=False):
+def _sandbox_files(dirty, broken_meta=False, odd_display=False, date_first=False, date_sep=False, date_dot=False, count_pair=False):
     """迷你技能树。dirty=True 时注入多类缺陷, 每类对应一个可被断言的关键词。
 
     **沙盒必须与真实技能结构双向同步**（1.13.28 立，两轮各踩一次才抽象出来）：
@@ -518,6 +545,13 @@ def _sandbox_files(dirty, broken_meta=False, odd_display=False, date_first=False
     改技能文件结构（增删改名）后，回来同步这棵树。
     """
     demo = 'TIMES = get_opt("--times")\n'
+    if count_pair:
+        # v1.15.26 同版补修标本(3a 判据收窄): 同一棵迷你树里同时放
+        #   ① 退出码枚举 0/1 + 隔着半行的「通过」(正是触发假红的原文形态) → 应降 NOTE 放行
+        #   ② 真写死计数 38/38 通过 → 应仍报 ERROR(防收窄过头把真缺陷放绿)
+        # 两者同现, 一次跑就能证明判据是「逐数字对区分」而非「整行一刀切放行/报错」。
+        demo += 'print("rc 非 0/1 一律不得当已通过")\n'      # 假红: 不该报 ERROR
+        demo += 'print("回归: 38/38 通过")\n'                 # 真写死计数: 该报 ERROR
     # 5) schema 登记: 干净树用官方合法的 python 型 + command 字段(应放行);
     #    脏树用白名单外类型 magic_check 且不登记(必须被抓)。
     deps_clean = ('{"dependencies": [{"id": "demo-pkg", "type": "local-tool", "required": false,'
@@ -647,8 +681,8 @@ def self_test(verbose=True):
         os.makedirs(sd, exist_ok=True)
         shutil.copy2(os.path.abspath(__file__), os.path.join(sd, "self_audit.py"))
 
-        def run(dirty, broken_meta=False, odd_display=False, date_first=False, date_sep=False, date_dot=False):
-            for rel, text in _sandbox_files(dirty, broken_meta, odd_display, date_first, date_sep, date_dot).items():
+        def run(dirty, broken_meta=False, odd_display=False, date_first=False, date_sep=False, date_dot=False, count_pair=False):
+            for rel, text in _sandbox_files(dirty, broken_meta, odd_display, date_first, date_sep, date_dot, count_pair).items():
                 fp = os.path.join(tmp, rel)
                 os.makedirs(os.path.dirname(fp), exist_ok=True)
                 with open(fp, "w", encoding="utf-8") as f:
@@ -735,6 +769,24 @@ def self_test(verbose=True):
                      % ("OK 2/2" if (date_sep_ok and date_dot_ok)
                         else "FAIL(静默跳过)\n%s\n%s" % (out7[-300:], out7b[-300:])))
 
+        # 第八组(v1.15.26 同版补修)：3a 写死计数判据收窄的正反标本, 同一棵迷你树同时注入
+        #   ① 退出码枚举 0/1 + 隔着半行的「通过」(假红原文形态)
+        #   ② 真写死计数 38/38 通过(既有 _DIRTY_MARKERS 的 defect 形态)
+        # 断言两个方向都要盯, 缺一即为假绿/假红:
+        #   真计数仍报 ERROR(防收窄过头放绿) / 0/1 不报 ERROR 且显式降 NOTE(防压症状+防静默吞)。
+        rc8, out8 = run(False, count_pair=True)
+        err8 = [l for l in out8.splitlines() if l.startswith("[ERROR] ")]
+        note8 = [l for l in out8.splitlines() if l.startswith("[NOTE] ")]
+        real_cnt = any("写死计数" in l and "38/38" in l for l in err8)
+        fp_err = any("写死计数" in l and "0/1" in l for l in err8)   # 应为 False
+        fp_note = any("0/1" in l and "未构成计数短语" in l for l in note8)
+        pair_ok = (rc8 != 0 and real_cnt and (not fp_err) and fp_note)
+        ok &= pair_ok
+        lines.append("  写死计数判据收窄(0/1放行+显式NOTE, 38/38仍抓): %s"
+                     % ("OK 真计数报错/假红NOTE放行" if pair_ok
+                        else "FAIL(real=%s fp_err=%s fp_note=%s, rc=%d)\n%s"
+                             % (real_cnt, fp_err, fp_note, rc8, out8[-400:])))
+
         # 真实基线: 上面两组都是虚拟树, 测不到"本技能此刻到底健康不健康"
         real = _real_baseline()
         real_ok_n = sum(1 for c in real if c[1])
@@ -751,10 +803,11 @@ def self_test(verbose=True):
             for l in lines:
                 print(l)
             print("-" * 62)
-            print("self_audit 自检: 正例 %d/1, 反例 %d/%d, 畸形meta %d/1, 两段式NOTE %d/1, 日期在前 %d/1, 日期漏网 %d/2, 真实基线 %d/%d → %s"
+            print("self_audit 自检: 正例 %d/1, 反例 %d/%d, 畸形meta %d/1, 两段式NOTE %d/1, 日期在前 %d/1, 日期漏网 %d/2, 计数判据 %d/1, 真实基线 %d/%d → %s"
                   % (1 if pos_ok else 0, hit, len(_DIRTY_MARKERS), 1 if meta_ok else 0,
                      1 if odd_ok else 0, 1 if date_ok else 0,
                      (1 if date_sep_ok else 0) + (1 if date_dot_ok else 0),
+                     1 if pair_ok else 0,
                      real_ok_n, len(real), "通过" if ok else "失败"))
         return 0 if ok else 1
     finally:

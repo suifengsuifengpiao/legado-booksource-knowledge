@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-js_layer_check.py —— 在 Node 里执行书源的 webJs / URL 选项 `js` 字段, 注入绑定桩,
-捕获「静态校验 + Playwright 时序模拟都碰不到」的 JS 层 bug。
+js_layer_check.py —— 在 Node 里执行书源的 webJs / URL 选项 `js` / `<js>` / `@js:` 规则,
+注入绑定桩, 捕获「静态校验 + Playwright 时序模拟都碰不到」的 JS 层 bug。
 
 为什么需要它(技能复盘清单 P3.9):
     validate_booksource.py 只查字段静态正确性, realcheck.py 只模拟 webView 时序, 两者都**不执行**
@@ -152,8 +152,19 @@ function main() {
   // 对 loginCheckJs 的注释）。此前 harness 未注入 baseUrl，对合法的 loginCheckJs 片段报
   // "baseUrl is not defined"（假红）。仅该作用域注入，值取本次请求 URL；其它作用域不注入，
   // 以免把「子规则误用 baseUrl」也放绿（反向标本仍须如实报错）。
-  if (cfg.kind === 'loginCheckJs') {
+  if (cfg.kind === 'loginCheckJs' || cfg.kind === 'url-rule') {
     ctx.baseUrl = String(cfg.url || '');
+  }
+  // v1.15.26: @js: URL 规则(AnalyzeUrl.evalJS)的绑定。3.25 dex 实证变量名列表
+  // java/cache/source/book/result/key/page/baseUrl/...(会话全记忆 03-2026-10-06.md:1288),
+  // baseUrl 在 nextContentUrl/nextTocUrl JS 上下文确实绑定(04-2026-10-07.md:478,
+  // apk-3.25-verified-facts line 38)。v1.15.24 只给 loginCheckJs 注入 baseUrl, 是为挡住
+  // 「子规则误用 baseUrl」; 这里按 kind 细化而非全局放开 —— pipe/子规则一律仍不注入,
+  // 那条反向标本继续有效。page 值从本次请求 URL 的 page=N 解析, 缺省 1(有来源的桩,
+  // 不是读死配置); 仅建模绑定存在, 不建模真机页码, 属离线近似(见文件头边界声明)。
+  if (cfg.kind === 'url-rule') {
+    var _pm = /[?&]page=(\d+)/.exec(String(cfg.url || ''));
+    ctx.page = _pm ? Number(_pm[1]) : 1;
   }
   // 搜索上下文变量 key: 仅当调用方为「searchUrl/exploreUrl 作用域」片段注入 cfg.key 时才存在。
   // 真机子规则作用域没有 key —— 不注入时片段若误用 key 仍会 ReferenceError(如实暴露, 不假绿)。
@@ -232,7 +243,7 @@ def run_one(node, code, fixture_html, url, initial_cookie, fixture_html2="", kin
             prelude="", result_raw=False, search_key=None):
     """在 Node 里跑一段书源 JS, 返回解析后的结果 dict; 失败返回 {ok:False, error}。
     fixture_html2: loginCheckJs 重取(java.connect)后返回的"真实内容"夹具。
-    kind: webJs / js / loginCheckJs / list-js, 影响 HARNESS 的判据分支。
+    kind: webJs / js / loginCheckJs / list-js / url-rule, 影响 HARNESS 的判据分支。
     verification_code: 注入 java.getVerificationCode() 桩的返回值(模拟用户输入的验证码);
         不传则桩返回默认 '123456'。用它验证 loginCheckJs 走的是弹码路径而不是静默跳过。
     ajax_body: 注入 java.ajax() 桩的兜底返回体(非取码/提交接口时返回); 不传则空串。
@@ -418,6 +429,19 @@ def extract_js_from_source(payload):
                 for idx, v in enumerate(o):
                     walk(v, path + "[%d]" % idx, k)
             elif isinstance(o, str) and _in_js_scope(k, path):
+                # v1.15.26: @js: 整段 JS 规则。3.25 JS 模式为
+                # `<js>([\w\W]*?)</js>|@js:([\w\W]*)`(会话全记忆 02-2026-10-05.md:5451):
+                # @js: 之后整串都是 JS, 不是选择器。旧版只认 <js> 正则, 含 @js: 的书源
+                # (如黄金屋 ruleToc.nextTocUrl) 被判「无 JS 层可执行」中性 SKIP 且 return
+                # True(假绿)。与 <js> 用同一 scope 判定, 不扩大扫描范围以免误伤顶层非
+                # URL/rule 字段(如 header)的既有边界。
+                _s = o.lstrip()
+                if _s.startswith("@js:"):
+                    _code = _s[4:]
+                    if _code.strip():
+                        _at_kind = ("list-js" if k in ("bookList", "chapterList") else "url-rule")
+                        add(tag + "/%s@js:" % (k or "?"), _at_kind, _code)
+                    return
                 # 旧 schema: 规则组可能是字符串化 JSON(如 exploreUrl[i].ruleExplore 结构 a),
                 # 其中的 <js> 键名在串内不可见 —— 先解析再递归, 让 bookList/chapterList 的
                 # <js> 能被识别(否则 explore 条目结构 a 整体绕过 list-js 闸门; 2026-10-25
@@ -513,7 +537,7 @@ def check_source_file(node, source_path, fixture_html, url, initial_cookie, veri
         sys.exit(2)
     items = extract_js_from_source(payload)
     if not items:
-        print("[NOTE] 该书源未检出 webJs / `js` 字段, 无 JS 层可执行")
+        print("[NOTE] 该书源未检出 webJs / `js` / `<js>` / `@js:` 规则, 无 JS 层可执行")
         return True
     # jsLib 共享作用域(真机 shareScope, dex 实证): 每个书源的 jsLib 顶层声明要注入它
     # 自己的所有 <js> 片段 —— 否则按官方推荐形态(helper 放 jsLib)写的书源会被假 FAIL
@@ -557,7 +581,7 @@ def check_source_file(node, source_path, fixture_html, url, initial_cookie, veri
         只认「最后一段剥离 <js>/.js/.webJs 后精确等于 searchUrl|exploreUrl」——
         rule 组嵌套、子规则、loginCheckJs、bookUrl/tocUrl 等一律不注入 key(真机同样无此绑定)。"""
         last = where.rsplit("/", 1)[-1]
-        core = last.replace("<js>", "")
+        core = last.replace("<js>", "").replace("@js:", "")
         for suf in (".webJs", ".js"):
             if core.endswith(suf):
                 core = core[: -len(suf)]
@@ -567,7 +591,10 @@ def check_source_file(node, source_path, fixture_html, url, initial_cookie, veri
     ok_all = True
     for where, kind, code in items:
         prelude = prelude_by_tag.get(_tag_of(where) or "", "")
-        result_raw = (kind == "pipe" and _sub_key(where) not in _RESPONSE_KEYS)
+        # @js: URL 规则的 result 是「当前页 HTML 字符串」, 不是响应对象 —— 与子规则
+        # pipe 同用 raw 桩, 否则 ''+result 得到 [object Object], 合法规则被假 FAIL。
+        result_raw = ((kind == "pipe" and _sub_key(where) not in _RESPONSE_KEYS)
+                      or kind == "url-rule")
         res = run_one(node, code, fixture_html, url, initial_cookie, kind=kind,
                       verification_code=verification_code,
                       ajax_body=ajax_body, captcha_b64=captcha_b64,
@@ -793,12 +820,51 @@ def self_test(node):
          "https://www.mowan.lol/api/search?keyword=x", None,
          lambda r: r.get("ok") and "斗破苍穹" in _ret(r),
          "子规则自含 JSON.parse(result) 应 PASS 且取到书名", "", "pipe", "", True),
+        # 17) @js: URL 规则正例(黄金屋 ruleToc.nextTocUrl 同形): result 必须是「当前页
+        #     HTML 字符串」raw 桩、baseUrl 必须注入; 否则 ''+result 得到 [object Object]
+        #     或 ReferenceError, 合法规则被假 FAIL(旧版更整体中性 SKIP 假绿)。
+        ("@js: 取下一页链接 url-rule(正例)",
+         "(function(){var h=''+result,u=''+baseUrl;"
+         "var m=h.match(/href=\"([^\"]+)\"[^>]*>下一页/);return m?m[1]:'';})()",
+         '<div id="chapterList"><a href="/c1">第一章</a></div><a href="/novel/402?page=2">下一页</a>',
+         "https://www.huangjinwu.org/novel/402?page=1", None,
+         lambda r: r.get("ok") and r.get("returned") == "/novel/402?page=2",
+         "url-rule 应注入 result(HTML字符串)+baseUrl 并解析出下一页链接",
+         "", "url-rule", "", True),
+        # 18) @js: 的 page 绑定: 3.25 AnalyzeUrl 变量名列表含 page(03-2026-10-06.md:1288),
+        #     本 harness 从请求 URL 的 page=N 解析。与 17 配对验证两个绑定都在。
+        ("@js: page 绑定取自 URL(正例)",
+         "(function(){var u=''+baseUrl;return u.replace(/([?&]page=)\\d+/,'$1'+(page+1));})()",
+         "<html></html>",
+         "https://www.huangjinwu.org/novel/402?page=1", None,
+         lambda r: r.get("ok") and r.get("returned") == "https://www.huangjinwu.org/novel/402?page=2",
+         "url-rule 应注入 page(从 URL 解析为 1), page+1 得 page=2",
+         "", "url-rule", "", True),
+        # 19) 反向标本: url-rule 只注入实证绑定, 未知变量仍须如实报错 —— 防止把
+        #     「补宿主桩」做成「无脑全局注入」制造假绿。
+        ("@js: 误用未绑定变量(反例)",
+         "(function(){return ''+undefinedBindingFoo;})()",
+         "<html></html>", "https://x.com/novel/1", None,
+         # HARNESS 把非 SyntaxError 的运行异常统一标 RuntimeError(不保留 ReferenceError
+         # 字样), 故按 e.message 的 "is not defined" 判定, 不能按异常类名判定。
+         lambda r: (not r.get("ok")) and "is not defined" in (r.get("error") or ""),
+         "未知变量应 RuntimeError, 不得被宿主桩放绿",
+         "", "url-rule", "", True),
+        # 20) 反向标本: v1.15.24「仅 loginCheckJs 注入 baseUrl」的约束不能被本次扩展
+        #     破坏 —— 非 url-rule 作用域(webJs/pipe/子规则)误用 baseUrl 仍须报错。
+        ("非 url-rule 作用域误用 baseUrl(反例)",
+         "(function(){return ''+baseUrl;})()",
+         "<html></html>", "https://x.com/a?page=3", None,
+         lambda r: (not r.get("ok")) and "is not defined" in (r.get("error") or ""),
+         "webJs/pipe 作用域不应外溢注入 baseUrl(v1.15.24 反向标本继续有效)",
+         "", "", "", False),
     ]
     passed = total = 0
     pos_pass = pos_total = neg_pass = neg_total = 0
     NEG_NAMES = {"语法错误 webJs", "运行时异常 webJs", "loginCheckJs 取码 java.get单参(旧bug)",
                  "mowan v1 列表拼接字符串(旧bug)",
-                 "mowan v4 完整形态·子规则引用 IIFE _p(旧bug)"}
+                 "mowan v4 完整形态·子规则引用 IIFE _p(旧bug)",
+                 "@js: 误用未绑定变量(反例)", "非 url-rule 作用域误用 baseUrl(反例)"}
     for item in cases:
         name, code, html, url, cookie, pred, desc = item[:7]
         vcode = item[7] if len(item) > 7 else ""
@@ -873,6 +939,24 @@ def self_test(node):
     print("[%s] %-34s %s" % ("PASS" if lib_ok else "FAIL", "extract jsLib: 字符串/map 注入, URL 跳过",
                              "" if lib_ok else ("chunks=%s skipped=%s / %s %s / %s %s"
                                                 % (_c1, _s1, _c2, _s2, _c3, _s3))))
+    # v1.15.26 @js: 抽取覆盖: 含 @js: 的书源不得再返回空 items(旧版中性 SKIP 假绿),
+    # 且 URL 规则须标 url-rule; 末段纯 @js: 的 bookList/chapterList 仍走 list-js 数组闸门。
+    _at_src = [{"bookSourceName": "atprobe",
+                "ruleToc": {"chapterList": "#chapterList a",
+                            "nextTocUrl": "@js:(function(){return baseUrl+'?page=2';})()"},
+                "ruleSearch": {"bookList": "@js:(function(){return ['x'];})()"}}]
+    _at_items = extract_js_from_source(_at_src)
+    _at_kinds = [(w, k) for w, k, c in _at_items]
+    _at_ok = (len(_at_items) == 2
+              and any(k == "url-rule" and "nextTocUrl" in w for w, k in _at_kinds)
+              and any(k == "list-js" and "bookList" in w for w, k in _at_kinds))
+    total += 1
+    pos_total += 1
+    if _at_ok:
+        pos_pass += 1
+        passed += 1
+    print("[%s] %-34s %s" % ("PASS" if _at_ok else "FAIL", "extract 覆盖: @js: 标 url-rule/list-js",
+                             "" if _at_ok else ("实得 %s" % _at_kinds)))
     print("=" * 54)
     print("js_layer 回归: %d/%d 通过  (正例 %d/%d, 反例 %d/%d)" % (passed, total, pos_pass, pos_total, neg_pass, neg_total))
     return passed == total
