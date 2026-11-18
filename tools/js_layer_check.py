@@ -568,6 +568,10 @@ def check_source_file(node, source_path, fixture_html, url, initial_cookie, veri
     # 的正文串), 不是响应对象。bookList/chapterList 的 <js>(含链式形态)与 searchUrl/
     # exploreUrl 整串 <js> 才是响应语义。用错桩会让真机正确形态假 FAIL —— 例如子规则
     # <js>JSON.parse(result).name</js> 用响应对象桩必 SyntaxError, 而它在真机是对的。
+    # 同类"真机合法但静态校验假红"还有 <js>{{$.字段}}</js>: {{...}} 是规则层模板占位,
+    # 宿主先展开再执行 JS, validate_booksource.py 的 _check_js_syntax 已在 node --check 前展开;
+    # 本工具如做语法求值也要按展开后语义判, 别把 {{...}} 当非法 JS token。认知同步见
+    # references/maintenance.md「`<js>` 内 {{...}} 模板先展开」Gotcha(两文件独立分发, 改一侧必同步另一侧)。
     _RESPONSE_KEYS = ("bookList", "chapterList", "searchUrl", "exploreUrl")
 
     def _sub_key(where):

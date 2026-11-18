@@ -124,6 +124,13 @@ webView(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String
 ```
 
 绝大多数搜索不需要 `<js>`。仅当要动态拼 URL、做签名、过动态验证时才用 `<js>`。
+**`{{...}}` 在 `<js>` 里的语义（重要）**：`{{...}}` 是**规则层模板占位**，宿主在 evalJS 之前会先把它展开成实际值，再执行展开后的 JS——它不是 JS 语法本身。因此下面这种写法是合法的真机写法，知识库真实样本「话本小说（优++）」的 `ruleToc.updateTime` 就是它：
+
+```
+"updateTime": "<js>{{$.wordCount}}+\"字 \"+java.timeFormat({{$.publishTime}})</js>"
+```
+
+要点：`{{$.字段}}` 引用规则字段、`{{key}}` 引用搜索词，展开后都是值，可以直接参与 JS 的字符串拼接、比较、函数传参。**纯本地语法校验若把 `{{...}}` 原样当 JS 检查会误报 `Unexpected token '{'`——本技能的 `validate_booksource.py` 已先在语法校验前展开占位，合法模板放行**（详见 `pitfalls.md` 铁律 17）。注意区分：`{{...}}` 展开发生在 JS 执行**之前**，跟 JS 里用 `java.xxx()`/`result` 是两回事，别混为一谈。
 
 ## URL 行内选项（追加在 URL 末尾 `,{JSON}`）
 

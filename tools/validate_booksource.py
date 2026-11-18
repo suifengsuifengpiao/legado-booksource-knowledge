@@ -380,7 +380,8 @@ def _braces_balanced(code):
 
 def _check_js_syntax(src, label, errors, warns, notes):
     """校验书源内全部 JS 片段语法。优先 node --check(真语法, 能抓缺括号/非法 token);
-    无 node 时退化为括号平衡检查。语法错误报 ERROR（导入即崩, 必须拦在交付前）。"""
+    无 node 时退化为括号平衡检查。语法错误报 ERROR（导入即崩, 必须拦在交付前）。
+    {{...}} 是规则层模板占位(先展开成值再执行 JS, 非 JS 语法), 校验前先展开为字面量, 详见循环内注释。"""
     frags = _collect_js_fragments(src)
     if not frags:
         return
@@ -388,6 +389,15 @@ def _check_js_syntax(src, label, errors, warns, notes):
     engine = "node --check" if node else "括号平衡(无 node, 仅兜底)"
     notes.append("[%s] JS 语法校验覆盖 %d 个片段(引擎: %s)" % (label, len(frags), engine))
     for where, code in frags:
+        # Legado 的 {{...}} 是规则层模板占位: 宿主在 evalJS 前先展开成实际值(见 references/legend-js-api.md
+        # 与 ruleHelp 原文档), 它不是 JS 语法。node --check 不认识 {{ }}, 直接校验会把合法书源假红成
+        # SyntaxError —— 知识库真实样本「话本小说(优++)」ruleToc.updateTime 就栽在这一句。
+        # 与真机「把占位替换成值」语义一致, 这里统一展开为数值字面量 0 再校验 JS 结构本身:
+        # 在字符串内(如 "?q={{key}}")替换成 0 仍是合法字符串, 在表达式/参数位({{$.a}}>0、
+        # java.timeFormat({{$.publishTime}}))也是合法 token, 不影响真括号错/非法 token 的检出。
+        # 这条认知同样记在 maintenance.md 的 Gotcha, js_layer_check.py 侧有对应注释 —— 两文件独立分发,
+        # 不共享导入, 改任一侧都要同步另一侧(真机合法形态假 FAIL 的同类坑)。
+        code = re.sub(r"\{\{.*?\}\}", "0", code, flags=re.S)
         ok, msg = (True, "")
         if node:
             d = tempfile.mkdtemp(prefix="jsck_")

@@ -200,6 +200,7 @@
   - **现技能已补**：`validate_booksource.py` 新增 `check_js_syntax()`——扫描书源里**所有** JS 片段（`loginCheckJs`、URL 行内选项 `js`/`webJs`、顶层 `searchUrl`/`exploreUrl` 整串、`rule*` 各组内所有字符串字段里的 `<js>` 管道），用 `node --check` 做语法校验（无 node 时退化为括号平衡检查），语法错直接报 **ERROR** 并给出错误类型。交付任何改动前先跑一遍：
     `python3 scripts/validate_booksource.py <你的书源.json>`
   - **易错点**：JS 写在 JSON 字符串值里时，括号/引号一旦不匹配，`node --check` 的报错行号指向的是**展开后的 JS**，不是原 JSON 行——定位时把该字段抽出来单独 `node --check` 最快（见 `js_layer_check.py` 的抽取逻辑）。    `java.connect`/`java.ajax` 这类 Java 互操作代码**务必不要在 `searchUrl` 行内 `js` 字段里硬塞**（v6/v7 连续翻车），改放顶层 `loginCheckJs`（铁律 15/16 已证稳定）。
+  - **`{{...}}` 是规则层模板、不是 JS 语法，`<js>` 里可以放心用**：宿主在 evalJS 前会先把 `{{$.字段}}`/`{{key}}` 展开成实际值再执行（见 `legend-js-api.md`「`{{key}}` 占位符」），所以 `<js>{{$.wordCount}}+"字 "+java.timeFormat({{$.publishTime}})</js>` 是**合法真机写法**（知识库真实样本「话本小说（优++）」`ruleToc.updateTime` 即此）。老版本地校验器把 `{{...}}` 原样交给 `node --check`，误报 `SyntaxError: Unexpected token '{'`——**那是校验器的假阳，不是你的书源坏了**。现在 `validate_booksource.py` 在语法校验前先把 `{{...}}` 展开为字面量，合法模板放行；真语法错（缺括号、非法 token）照报不误。写书源时若见到这条 `Unexpected token '{'`，先确认是不是校验器旧版误报，别去改本来正确的书源。
 
 - **铁律 18：`concurrentRate` 是全局串行限速，分页站点误加会把加载拖成十几秒（真机实测）**
   - **语义**（3.25 反编译 `AnalyzeUrl` 实证）：`concurrentRate` 的值是「**两次请求之间至少间隔 N 毫秒**」，且**跨整本书源全局生效**，不是「每秒并发 N 个」。

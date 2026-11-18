@@ -55,6 +55,13 @@
 **误报如实**：validate 从 10 条 error 降到 2 条 `dead_reference`——`pitfalls.md` 529/585 的 JS 正则 `['"](...)` 被检查器 `MARKDOWN_LINK_RE` 误当 markdown 链接，是合法必要正则、改则损害书源规则原意，**保持不动、标注为误报**；preflight 仍 blocked 因方法包不支持三种二进制类型（工具局限，已用来源证据替代，不宣称静态分析通过）。
 **版本三处同步** 1.15.28（`SKILL.md` frontmatter / `_meta.json` version+display_name / `check_request_layer.py` docstring），正文 233 行、85 文件（91−7 RELEASE_NOTES+1 PROVENANCE）、0 pyc、CRC OK。修复后六项自检全绿（版本三处一致 / self_audit 六项 + `--self-test` 反例 7/7·计数 1/1·真实基线 4/4 / js_layer 23/23 / test_parse / evals 96/96），重打包产物另起干净解包复跑全绿；产物 1,101,653B / md5 `8bc9f748…`。
 **同步落地**：`tools/` 1 脚本同步（`check_request_layer.py` 仅版本号），`md5_sync_check.py` `一致 17 / 漂移 0`、真实平铺 `--run-evals` PASS 94 / FAIL 2（self_audit 布局豁免）exit=0；`tools/README.md` 版本指针到 1.15.28。走 Release：`https://gitee.com/z157001/legado-booksource-knowledge/releases/download/v1.15.28/legado-booksource-debug_v1.15.28.skill`
+<br>㉙ **`legado-booksource-debug_v1.15.29.skill`** — 技能包（2026-11-18 归档，**JS 语法校验的 `{{...}}` 模板占位假阳修复 + 知识库交叉复查的认知同步，非书源规则升级、不涉及字体/站型结论层、未改任何判定逻辑与书源版本**）：起因——用户要求「读完整书源知识库后复查最新版本 bug/质量/优化点」，以知识库 271 文件当标准答案做结构审查 + 历史 16 bug 回归 + 真实书源实战回归（质量 7.8/10）。
+**P0（唯一真 bug，新发现）**：`scripts/validate_booksource.py` 的 `_check_js_syntax` 把 `<js>...</js>` 内容原样交 `node --check`，未先展开 Legado 规则层模板占位 `{{...}}`——而官方文档 `ruleHelp` 明确 `{{}}` 内是规则表达式、宿主先展开再执行 JS，故 `<js>{{$.wordCount}}+"字 "+java.timeFormat({{$.publishTime}})</js>` 这类合法真机写法被误报 `SyntaxError: Unexpected token '{'`。**知识库自己的真实样本「话本小说（优++）」`ruleToc.updateTime` 命中，改前 `ERROR=1 / exit=1`**。修法：`node --check` 前用 `re.sub(r"\{\{.*?\}\}", "0", code, flags=re.S)` 把占位展开为字面量（与真机「先展开再执行」语义一致；字符串内 `?q={{key}}` 替换成 0 仍合法，表达式/参数位也合法），真语法错照常检出。`evals/validate_cases.json` 新增 2 条回归（good 合法模板放行 / bad 夹模板的真语法错仍拦），**98/98**；真实样本改后 `ERROR=0 / exit=0`。
+**P1**：技能包 `references/maintenance.md` 第 49 行上轮已把 `/tmp/m1/oldtree/` 占位化，知识库 `references-extra/maintenance.md` 未同步（9 字节双源差）——已同步为逐字节一致。
+**P2-3（知识层共享）**：把「`<js>` 内 `{{...}}` 先展开再执行 JS」的认知写进书源作者会读的 `pitfalls.md` 铁律 17 与 `legend-js-api.md`「`{{key}}` 占位符」章节，维护手册 `maintenance.md` 记 Gotcha（点明两脚本独立分发、改一侧必同步另一侧），`js_layer_check.py` 补互指注释——**不做代码层共享模块**（那会拆掉「两文件独立分发、不共享导入」架构、扩大改动面）。四处措辞一致、双源正文同步。
+**P2-4**：`SKILL.md` 主流程「验证命中」步补 `test_parse.py` 退出码三态醒目提示——`2`=零实测区（未验证），**SKIP 不等于通过**，别把 exit=2 当成功。
+**验证**：版本三处同步 1.15.29（`SKILL.md` / `_meta.json` version+display_name / `check_request_layer.py` docstring），正文 233 行（同段内追加未增物理行）、85 文件、0 pyc、CRC OK。六项自检全绿（版本一致 / self_audit 六项 + `--self-test` / js_layer 23/23 / test_parse / evals 98/98），重打包产物干净解包复跑三检全绿、产物内校验器跑话本小说 `ERROR=0`；产物 1,104,436B / md5 `8ae0abef…`。改前备份 `backup_legado-booksource-debug_v1.15.28_20261118_123616` / `backup_knowledge-repo_v1.15.28_20261118_123616`。
+**同步落地**：`tools/` 3 脚本同步（validate/js_layer 修复 + check_request_layer 版本号），`md5_sync_check.py` `一致 17 / 漂移 0`、真实平铺 `--run-evals` PASS 94 / FAIL 2（self_audit 布局豁免）exit=0；`tools/README.md` 版本指针到 1.15.29。走 Release：`https://gitee.com/z157001/legado-booksource-knowledge/releases/download/v1.15.29/legado-booksource-debug_v1.15.29.skill`
 
 ## 2026-10-31 更新
 
@@ -140,6 +147,18 @@
 - **验证与重打包**：版本三处 1.15.28，85 文件 / 0 pyc / CRC OK；六项自检全绿，重打包产物解包复跑全绿；产物 1,101,653B / md5 `8bc9f748…`。改前备份：两副本 `backup_legado-booksource-debug_v1.15.27_20261118_111458`、知识库 `backup_knowledge-repo_v1.15.27_20261118_111458`。
 
 - **同步落地**：`tools/` 1 脚本（`check_request_layer.py` 仅版本号），md5 门禁一致 17/漂移 0、平铺 evals PASS 94/FAIL 2（布局豁免）exit=0；`tools/README.md` 指针 1.15.28。
+
+## 2026-11-18 发版（v1.15.29 · JS 模板占位假阳修复 + 知识库交叉复查认知同步）
+
+> 本轮为**工具侧假阳修复发版**（清单 ㉙），非书源侧来件、非书源规则升级。**未改任何判定逻辑朝向、解析规则、字体/站型结论、书源版本。**起因：用户要求「读完整书源知识库后复查最新版本 bug/质量/优化点」，以知识库 271 文件当标准答案做三层复查（结构 + 历史 16 bug 回归 + 真实书源实战回归，质量 7.8/10），用户授权「按优化建议全部做完」。全程改前备份、最小侵入。
+
+- **P0（唯一真 bug）**：`validate_booksource.py` `_check_js_syntax` 把 `<js>` 片段原样交 `node --check`，未展开 Legado 规则层模板 `{{...}}`——官方 `ruleHelp` 明确 `{{}}` 内规则表达式宿主先展开再执行 JS，合法写法 `<js>{{$.wordCount}}+"字 "+java.timeFormat({{$.publishTime}})</js>` 被误报 `Unexpected token '{'`。**知识库真实样本「话本小说（优++）」`ruleToc.updateTime` 命中，改前 ERROR=1/exit=1**。修法：`node --check` 前 `re.sub(r"\{\{.*?\}\}", "0", code, flags=re.S)` 展开占位，与真机「先展开再执行」一致，字符串内/表达式位均合法、真语法错照拦。新增 2 条回归用例（good 放行 / bad 夹模板真错仍拦），evals 96→**98/98**；真实样本改后 ERROR=0/exit=0。
+
+- **P1+P2+P2（四项一并）**：① 知识库 `references-extra/maintenance.md` 第 49 行同步上轮的占位改动（消除 9 字节双源差）；② 知识层共享——把「`{{...}}` 先展开再执行 JS」写进作者会读的 `pitfalls.md` 铁律 17 与 `legend-js-api.md` 占位符章节，维护手册记 Gotcha（点明两脚本独立分发、改一侧必同步），`js_layer_check.py` 补互指注释，四处措辞一致、双源正文同步，**不做代码层共享模块**（不拆独立分发架构）；③ `SKILL.md` 主流程补 `test_parse.py` 退出码三态提示，醒目区分「exit=2 未验证 ≠ 通过」。
+
+- **验证与重打包**：版本三处 1.15.29，正文 233 行、85 文件 / 0 pyc / CRC OK；六项自检全绿，重打包产物干净解包复跑三检全绿、产物内校验器跑话本小说 ERROR=0；产物 1,104,436B / md5 `8ae0abef…`。改前备份：`backup_legado-booksource-debug_v1.15.28_20261118_123616`、`backup_knowledge-repo_v1.15.28_20261118_123616`。
+
+- **同步落地**：`tools/` 3 脚本同步（validate/js_layer 修复 + check_request_layer 版本号），md5 门禁一致 17/漂移 0、平铺 evals PASS 94/FAIL 2（布局豁免）exit=0；`tools/README.md` 指针 1.15.29。
 
 ## 来源与版权
 
