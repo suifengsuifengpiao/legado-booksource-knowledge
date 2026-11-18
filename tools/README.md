@@ -1,8 +1,8 @@
-# Legado 书源工具链（legado-booksource-debug 技能 v1.15.27）
+# Legado 书源工具链（legado-booksource-debug 技能 v1.15.28）
 
 本地化校验与真机语义对齐工具集。核心原则：**本地不建模的语义如实降级为「需真机验证」，绝不跑出与真机不符的假结果**。
 
-> **同步状态（2026-11-18）**：本目录 17 个脚本已与技能 `scripts/` **逐文件 md5 一致**（对应技能 v1.15.27），`md5_sync_check.py` 门禁 `一致 17 / 漂移 0 / exit=0`；`--run-evals` 真实平铺复跑 `PASS 94 / FAIL 2（豁免 2）exit=0`。
+> **同步状态（2026-11-18）**：本目录 17 个脚本已与技能 `scripts/` **逐文件 md5 一致**（对应技能 v1.15.28），`md5_sync_check.py` 门禁 `一致 17 / 漂移 0 / exit=0`；`--run-evals` 真实平铺复跑 `PASS 94 / FAIL 2（豁免 2）exit=0`。
 > 本轮（v1.15.26，**工具侧三处判定失真修复**）同步四处：`test_parse.py`（零样本假绿修复——新增 `verified_regions`，只有传入 HTML/`--json` 样本的区域才计入实测，中性 SKIP 一律不计；退出码改三态 `0`=至少一区真验过且全命中 / `1`=有核心字段 MISS 或 ERR / `2`=零实测区「未验证」，失败优先于零实测，与 `verify_booksource.py` 四态 `UNKNOWN` 对齐）/ `js_layer_check.py`（`@js:` 漏扫修复——`walk()` 识别 `@js:` 前缀标 `url-rule`，`result` 按当前页 HTML 注入、`url-rule` 宿主绑定 `baseUrl` 与 `page`，`_is_search_scope` 认识 `@js:` 后缀，空检出文案补 `@js:`，新增 5 组正反标本 + 抽取断言；`--self-test` 18/18→**23/23**。按 kind 细化 v1.15.24「仅 `loginCheckJs` 注入 `baseUrl`」：pipe/子规则仍一律不注入，其反向标本继续有效）/ `self_audit.py`（3a 判据假红修复——由整行 `re.search(回归|通过|用例|self-test, line)` 收窄为逐数字对调 `_is_count_phrase()`，只认数字对紧邻计数短语，其余降 `[NOTE]` 显式放行不静默吞；`--self-test` 新增第八组正反标本；还原 `test_parse.py` 为规避假红而改的措辞让 `0/1` 回来，证明修的是判据不是文案）/ `check_request_layer.py`（仅 docstring 版本号 1.15.25→1.15.26）。**本版为工具侧修复，不是书源规则升级、不涉及字体/站型结论层、未改任何书源规则**。
 > 历史追平脉络：v1.15.16–v1.15.19 请求层闸修复（R2 分隔符 / R5 剥锚点与 host / 选项段 gson lenient / `<js>` 短路 / 类型守卫）、`check_version_sync` 非技能包 exit=1 与 `display_name` 版本比对、`validate_booksource` 类型守卫前置、v1.15.20 四项解析层修复（`ruleExplore` 空对象回退 `ruleSearch` / 列表链接 `//x`→`.//x` / JSOUP 求值兜底 / `@CSS:` 大小写不敏感）、v1.15.21 平铺布局兼容、v1.15.22 `##` 切段 dex 落盘、v1.15.23 判定层三处失真修复（verify 四态 / `--key` 桩 / self_audit 判据收窄）、v1.15.24 字体站型分型与判定层修复、v1.15.25 aaawz 字体结论勘误（结论层更正）、v1.15.26 工具侧三处判定失真修复（零样本假绿 / `@js:` 漏扫 / 计数判据假红）。**旧版会误判正常书源**，已全部替换。
 > 注意：本目录脚本平铺在根目录（非 `scripts/` 子目录）。v1.15.21 起 `evals/run_evals.py` 已支持平铺定位，可在本目录原地跑，结果为 **94/96**——差的 2 条恒为 `self_audit`（检的是技能包自身结构，本目录没有 `references/` 文档树）。技能包内跑仍是 **96/96**。
@@ -14,7 +14,7 @@
 > - 下次升级技能后先跑这条，再谈别的。
 > 另：`lint/booksource_lint.py`（知识库侧 lint 工具，非技能脚本）含 `strip_url_options()`。
 >
-> **最新技能包（v1.15.27）**：`https://gitee.com/z157001/legado-booksource-knowledge/releases/download/v1.15.27/legado-booksource-debug_v1.15.27.skill`（解压即用，内含 `scripts/` 与本目录同名同 md5 的 17 个脚本）。
+> **最新技能包（v1.15.28）**：`https://gitee.com/z157001/legado-booksource-knowledge/releases/download/v1.15.28/legado-booksource-debug_v1.15.28.skill`（解压即用，内含 `scripts/` 与本目录同名同 md5 的 17 个脚本）。
 > **历史独立包**：`releases/legado-tools_v1.14.10.zip`（2.5MB，解压即用，不需要装技能；**不含 b2**）——已过期，仅存档。
 > B2 真机引擎单独发包：`legado-tools-b2-runtime_v1.14.10.zip`（27MB，含 APK 转出的 4 个 jar + enjarify 修复包 + 已编译 harness，解压即跑）。
 > 下载走 Release 附件（raw 对 >20MB 文件返回 403）：https://gitee.com/z157001/legado-booksource-knowledge/releases/download/v1.14.10-b2.5/legado-tools-b2-runtime_v1.14.10.zip
