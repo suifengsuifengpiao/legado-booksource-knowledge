@@ -1068,8 +1068,18 @@ def check_source(src, idx, errors, warns, notes):
                     re.compile(_pat)
                 except re.error as e:
                     errors.append("[%s] ruleContent.replaceRegex 正则无法编译: %s" % (label, e))
-    js_sanitized = isinstance(content_rule, str) and (
-        "<js>" in content_rule and ("continue" in content_rule or "break" in content_rule or ".test(" in content_rule))
+    # JS 内净化的两种可识别形态(并集, 不可互相替换 —— 替换会丢老样本):
+    #   ① 老判据: <js> 包裹 + continue/break/.test() 循环过滤(如菠萝猫系)。
+    #   ② 新判据: @js: 或 <js> 包裹 + .replace(/正则/g, '') 清空式净化(如笔趣阁/九库/八叉)。
+    #      只认「替换为空串」是刻意的: .replace(...,'$1') 多为 URL/解码处理而非净化,
+    #      放宽会把「正文没净化」误判成已净化(假阴), 比多报一次 WARN 更危险。
+    if isinstance(content_rule, str):
+        js_loop = "<js>" in content_rule and ("continue" in content_rule or "break" in content_rule or ".test(" in content_rule)
+        js_replace = ("<js>" in content_rule or content_rule.lstrip().startswith("@js:")) and bool(
+            re.search(r"\.replace(?:All)?\(\s*/[^/]+/\s*g?\s*,\s*(?:''|\"\")", content_rule))
+        js_sanitized = js_loop or js_replace
+    else:
+        js_sanitized = False
     if not rr:
         if not (isinstance(content_rule, str) and "##" in content_rule) and not js_sanitized:
             warns.append("[%s] 未配置 replaceRegex / content 内嵌 ## / JS 内净化过滤, 正文可能夹带广告" % label)
